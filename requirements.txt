@@ -1,4 +1,8 @@
 pandas>=2.0.0
 yfinance>=0.2.36
 pymongo
-faker
+db-sqlite3
+langchain
+langchain-core
+langchain-openai
+pydantic
