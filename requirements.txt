@@ -11,4 +11,5 @@ langchain
 langchain-core
 langchain-openai
 pydantic
-
+langgraph
+langchain-community
