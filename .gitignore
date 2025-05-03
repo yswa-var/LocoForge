@@ -1,2 +1,4 @@
 venv/
 *.db
+config.py
+*.json
