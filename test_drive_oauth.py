@@ -5,8 +5,8 @@ import time
 from google_drive_ops import DriveConnector
 
 # Path to credentials (update these paths to match your setup)
-CREDENTIALS_PATH = os.path.expanduser("~/.config/locoforge/oauth-credentials.json")
-TOKEN_PATH = os.path.expanduser("~/.config/locoforge/token.json")
+CREDENTIALS_PATH = os.path.expanduser("/Users/yash/Downloads/exercises/LocoForge/drive_config.json")
+TOKEN_PATH = os.path.expanduser("/Users/yash/Downloads/exercises/LocoForge/token.json")
 
 def pretty_print_json(title, json_str):
     """Pretty print JSON results with a title"""

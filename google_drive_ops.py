@@ -3,6 +3,9 @@ import base64
 import io
 import json
 from typing import Dict, List, Optional, Union, Any
+import re
+from dataclasses import dataclass
+from enum import Enum
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
@@ -12,6 +15,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 import mimetypes
+import logging
+
+logger = logging.getLogger(__name__)
 
 class DriveConnector:
     """
@@ -48,9 +54,36 @@ class DriveConnector:
         
         if self.auth_method == 'service_account':
             # Service account authentication
-            if os.path.exists(self.credentials_path):
+            if not os.path.exists(self.credentials_path):
+                raise FileNotFoundError(
+                    f"Credentials file not found at {self.credentials_path}. "
+                    "Please ensure you have downloaded the service account key file from Google Cloud Console."
+                )
+            
+            try:
+                with open(self.credentials_path, 'r') as f:
+                    creds_data = json.load(f)
+                    required_fields = ['type', 'project_id', 'private_key_id', 'private_key', 'client_email', 'token_uri']
+                    missing_fields = [field for field in required_fields if field not in creds_data]
+                    
+                    if missing_fields:
+                        raise ValueError(
+                            f"Service account credentials file is missing required fields: {', '.join(missing_fields)}. "
+                            "Please ensure you have downloaded the complete service account key file from Google Cloud Console."
+                        )
+                
                 credentials = service_account.Credentials.from_service_account_file(
                     self.credentials_path, scopes=self.SCOPES
+                )
+            except json.JSONDecodeError:
+                raise ValueError(
+                    f"Invalid JSON in credentials file {self.credentials_path}. "
+                    "Please ensure the file contains valid JSON data."
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load service account credentials: {str(e)}. "
+                    "Please ensure you have downloaded the correct service account key file from Google Cloud Console."
                 )
         else:  # OAuth flow
             if os.path.exists(self.token_path):
@@ -307,19 +340,31 @@ class DriveConnector:
         Returns:
             JSON string with the operation status
         """
-        if permanent:
-            self.service.files().delete(fileId=file_id).execute()
-            response = {"status": "success", "message": "File permanently deleted"}
-        else:
-            # Move to trash (this is Google Drive's default behavior)
-            self.service.files().update(
-                fileId=file_id,
-                body={"trashed": True}
-            ).execute()
-            response = {"status": "success", "message": "File moved to trash"}
-        
-        # Convert to JSON string
-        return json.dumps(response)
+        try:
+            # First check if the file exists
+            try:
+                self.service.files().get(fileId=file_id, fields="id").execute()
+            except Exception as e:
+                if "File not found" in str(e):
+                    return json.dumps({"error": "The file or folder you're trying to delete was not found. It may have been already deleted or moved."})
+                raise
+
+            if permanent:
+                self.service.files().delete(fileId=file_id).execute()
+                response = {"status": "success", "message": "File permanently deleted"}
+            else:
+                # Move to trash (this is Google Drive's default behavior)
+                self.service.files().update(
+                    fileId=file_id,
+                    body={"trashed": True}
+                ).execute()
+                response = {"status": "success", "message": "File moved to trash"}
+            
+            # Convert to JSON string
+            return json.dumps(response)
+        except Exception as e:
+            logger.error(f"Error deleting file {file_id}: {str(e)}", exc_info=True)
+            return json.dumps({"error": str(e)})
     
     def search_files(self, query_text: str, page_size: int = 100) -> str:
     # For direct name search, use simpler query
@@ -338,3 +383,158 @@ class DriveConnector:
         ).execute()
         
         return json.dumps(results)
+
+class DriveOperation(Enum):
+    LIST = "list"
+    DOWNLOAD = "download"
+    UPLOAD = "upload"
+    CREATE_FOLDER = "create_folder"
+    UPDATE = "update"
+    DELETE = "delete"
+    SEARCH = "search"
+
+@dataclass
+class DriveCommand:
+    operation: DriveOperation
+    parameters: Dict[str, Any]
+
+class DriveAgent:
+    """
+    An agent that provides natural language interaction with Google Drive operations.
+    Wraps the DriveConnector to provide a more intuitive interface.
+    """
+    
+    def __init__(self, auth_method: str = 'service_account', 
+                 credentials_path: str = 'credentials.json',
+                 token_path: str = 'token.json'):
+        """
+        Initialize the Drive Agent with authentication.
+        
+        Args:
+            auth_method: Authentication method ('service_account' or 'oauth')
+            credentials_path: Path to the credentials file
+            token_path: Path to the token file (for OAuth)
+        """
+        self.drive = DriveConnector(auth_method, credentials_path, token_path)
+        
+    def _parse_command(self, command: str) -> DriveCommand:
+        """
+        Parse a natural language command into a structured DriveCommand.
+        
+        Args:
+            command: Natural language command string
+            
+        Returns:
+            DriveCommand object with operation and parameters
+        """
+        command = command.lower().strip()
+        logger.info(f"Parsing command: {command}")
+        
+        # List files
+        if re.match(r"^(list|show|get) (files|documents|folders)", command):
+            return DriveCommand(DriveOperation.LIST, {})
+            
+        # Download file
+        if re.match(r"^(download|get) (file|document)", command):
+            file_id = re.search(r"id[:\s]+([a-zA-Z0-9_-]+)", command)
+            if file_id:
+                return DriveCommand(DriveOperation.DOWNLOAD, {"file_id": file_id.group(1)})
+                
+        # Upload file
+        if re.match(r"^(upload|add|put) (file|document)", command):
+            file_path = re.search(r"from[:\s]+([^\s]+)", command)
+            if file_path:
+                return DriveCommand(DriveOperation.UPLOAD, {"file_path": file_path.group(1)})
+                
+        # Create folder
+        if re.match(r"^(create|make) (folder|directory)", command):
+            # Extract folder name after "named:" or "called:"
+            folder_name = re.search(r"(?:named|called)[:\s]+([^:]+?)(?:\s*$|\s+(?:in|with|from|to|for))", command)
+            if folder_name:
+                return DriveCommand(DriveOperation.CREATE_FOLDER, {"name": folder_name.group(1).strip()})
+                
+        # Update file
+        if re.match(r"^(update|modify|change) (file|document)", command):
+            file_id = re.search(r"id[:\s]+([a-zA-Z0-9_-]+)", command)
+            if file_id:
+                return DriveCommand(DriveOperation.UPDATE, {"file_id": file_id.group(1)})
+                
+        # Delete file
+        if re.match(r"^(delete|remove) (file|document)", command):
+            file_id = re.search(r"id[:\s]+([a-zA-Z0-9_-]+)", command)
+            if file_id:
+                return DriveCommand(DriveOperation.DELETE, {"file_id": file_id.group(1)})
+                
+        # Search files
+        if re.match(r"^(search|find) (for|)", command):
+            # Extract search query after "for:" or "containing:"
+            query = re.search(r"(?:for|containing)[:\s]+([^:]+?)(?:\s*$|\s+(?:in|with|from|to|for))", command)
+            if query:
+                return DriveCommand(DriveOperation.SEARCH, {"query_text": query.group(1).strip()})
+                
+        logger.error(f"Could not parse command: {command}")
+        raise ValueError(f"Could not parse command: {command}")
+        
+    def execute_command(self, command: str) -> str:
+        """
+        Execute a natural language command.
+        
+        Args:
+            command: Natural language command string
+            
+        Returns:
+            JSON string with the operation result
+        """
+        try:
+            logger.info(f"Executing command: {command}")
+            drive_command = self._parse_command(command)
+            logger.info(f"Parsed command: {drive_command}")
+            
+            if drive_command.operation == DriveOperation.LIST:
+                return self.drive.list_files()
+                
+            elif drive_command.operation == DriveOperation.DOWNLOAD:
+                return self.drive.download_file(drive_command.parameters["file_id"])
+                
+            elif drive_command.operation == DriveOperation.UPLOAD:
+                return self.drive.upload_file(drive_command.parameters["file_path"])
+                
+            elif drive_command.operation == DriveOperation.CREATE_FOLDER:
+                return self.drive.create_folder(drive_command.parameters["name"])
+                
+            elif drive_command.operation == DriveOperation.UPDATE:
+                return self.drive.update_file(drive_command.parameters["file_id"])
+                
+            elif drive_command.operation == DriveOperation.DELETE:
+                try:
+                    return self.drive.delete_file(drive_command.parameters["file_id"])
+                except Exception as e:
+                    if "File not found" in str(e):
+                        return json.dumps({"error": "The file or folder you're trying to delete was not found. It may have been already deleted or moved."})
+                    raise
+                
+            elif drive_command.operation == DriveOperation.SEARCH:
+                return self.drive.search_files(drive_command.parameters["query_text"])
+                
+        except Exception as e:
+            logger.error(f"Error executing command: {str(e)}", exc_info=True)
+            return json.dumps({"error": str(e)})
+            
+    def get_help(self) -> str:
+        """
+        Get help information about available commands.
+        
+        Returns:
+            String containing help information
+        """
+        help_text = """
+Available commands:
+1. List files: "list files" or "show documents"
+2. Download file: "download file id: <file_id>"
+3. Upload file: "upload file from: <file_path>"
+4. Create folder: "create folder named: <folder_name>"
+5. Update file: "update file id: <file_id>"
+6. Delete file: "delete file id: <file_id>"
+7. Search files: "search for: <query>"
+        """
+        return help_text

@@ -2,3 +2,9 @@ venv/
 *.db
 config.py
 *.json
+lib/
+bin/
+*.cfg
+share/
+main.txt
+CACHEDIR.TAG
