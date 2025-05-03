@@ -86,3 +86,57 @@ The script performs similar operations as the SQLite version but using MongoDB:
 - If they don't exist, creates them and populates with Apple (AAPL) stock data
 - Displays the latest 5 records from the collection
 
+# Google Drive Connector for LocoForge
+
+## Setup Instructions
+
+### 1. Create Google Cloud Project
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select existing one)
+3. Enable the Google Drive API
+
+### 2. Create Credentials
+Choose one of these authentication methods:
+
+#### Option A: OAuth Credentials (for user account access)
+1. Go to "APIs & Services" > "Credentials"
+2. Click "Create Credentials" > "OAuth client ID"
+3. Choose "Desktop application"
+4. Download the JSON file
+
+#### Option B: Service Account (for automated/server use)
+1. Go to "IAM & Admin" > "Service Accounts"
+2. Create a service account
+3. Create and download a JSON key for this service account
+4. Share specific Drive folders/files with the service account email
+
+### 3. Store Credentials Securely
+```bash
+# Create config directory
+mkdir -p ~/.config/locoforge
+
+# Move credentials to secure location
+mv path/to/downloaded/credentials.json ~/.config/locoforge/oauth-credentials.json
+# OR
+mv path/to/downloaded/service-account.json ~/.config/locoforge/service-account.json
+
+# Set proper permissions
+chmod 600 ~/.config/locoforge/*.json
+```
+
+### 4. Create Configuration File
+Create a file named `config.py`:
+
+```python
+import os
+
+# Google Drive API credentials
+GOOGLE_DRIVE_AUTH_METHOD = "oauth"  # or "service_account"
+GOOGLE_DRIVE_CREDENTIALS_PATH = os.path.expanduser("~/.config/locoforge/oauth-credentials.json")
+GOOGLE_DRIVE_TOKEN_PATH = os.path.expanduser("~/.config/locoforge/token.json")
+```
+
+### 5. Install Required Packages
+```bash
+pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+```
