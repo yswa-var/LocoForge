@@ -1,7 +1,14 @@
 pandas>=2.0.0
 yfinance>=0.2.36
 pymongo
+google-drive
 faker
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+db-sqlite3
+langchain
+langchain-core
+langchain-openai
+pydantic
+
