@@ -1,176 +1,231 @@
-from typing import Any, Dict, List, Union
-from pymongo import MongoClient
+import pymongo
+from faker import Faker
+import random
+from datetime import datetime, timedelta
+import uuid
+import hashlib
+from src.logger import setup_logger
 
+# Initialize logger
+logger = setup_logger('nosql_query_executer')
 
-class MongoDBExecutor:
+# Initialize MongoDB client
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+db = client["user_management_db"]
 
-    def __init__(self, mongo_uri="mongodb://localhost:27017", 
-                 mongo_db="stock_data", 
-                 mongo_collection="ohlc"):
-        """Initialize MongoDB connection.
-        
-        Args:
-            mongo_uri: MongoDB connection URI
-            mongo_db: MongoDB database name
-            mongo_collection: MongoDB collection name
-        """
-        self.mongo_uri = mongo_uri
-        self.mongo_db = mongo_db
-        self.mongo_collection = mongo_collection
-        self.mongo_client = None
+# Initialize Faker
+fake = Faker()
+
+# Clear existing collections
+db.users.drop()
+db.roles.drop()
+db.activity_logs.drop()
+
+# Create collections
+users_collection = db["users"]
+roles_collection = db["roles"]
+activity_logs_collection = db["activity_logs"]
+
+def generate_password_hash(password):
+    """Generate a simple hash for a password (for demo purposes only)"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def generate_roles(num_roles=5):
+    """Generate roles data and insert into MongoDB"""
+    roles = [
+        {
+            "role_id": str(uuid.uuid4()),
+            "name": "Admin",
+            "description": "Full system access with all privileges",
+            "permissions": ["create", "read", "update", "delete", "manage_users", "manage_roles"],
+            "created_at": datetime.now() - timedelta(days=random.randint(100, 365))
+        },
+        {
+            "role_id": str(uuid.uuid4()),
+            "name": "Manager",
+            "description": "Access to manage content and users",
+            "permissions": ["create", "read", "update", "delete", "manage_users"],
+            "created_at": datetime.now() - timedelta(days=random.randint(100, 365))
+        },
+        {
+            "role_id": str(uuid.uuid4()),
+            "name": "Editor",
+            "description": "Can create and modify content",
+            "permissions": ["create", "read", "update"],
+            "created_at": datetime.now() - timedelta(days=random.randint(100, 365))
+        },
+        {
+            "role_id": str(uuid.uuid4()),
+            "name": "Viewer",
+            "description": "Read-only access to content",
+            "permissions": ["read"],
+            "created_at": datetime.now() - timedelta(days=random.randint(100, 365))
+        }
+    ]
     
-    def _ensure_connection(self):
-        if not self.mongo_client:
-            self.mongo_client = MongoClient(self.mongo_uri)
-            self.mongo_client.server_info()  # Will raise an exception if connection fails
+    # Add custom roles if needed
+    while len(roles) < num_roles:
+        role_name = fake.job().split()[0]  # Get first word of job title
+        permissions = random.sample(["create", "read", "update", "delete"], random.randint(1, 4))
         
-        return self.mongo_client[self.mongo_db][self.mongo_collection]
+        role = {
+            "role_id": str(uuid.uuid4()),
+            "name": f"{role_name}",
+            "description": f"{role_name} role with custom permissions",
+            "permissions": permissions,
+            "created_at": datetime.now() - timedelta(days=random.randint(30, 365))
+        }
+        roles.append(role)
     
+    if roles:
+        roles_collection.insert_many(roles)
+        logger.info(f"Inserted {len(roles)} roles")
     
-    def select(self, query: Dict) -> Dict[str, Any]:
-        """Execute a find query on the MongoDB database.
+    return roles
+
+def generate_users(roles, num_users=100):
+    """Generate fake user data and insert into MongoDB"""
+    users = []
+    departments = ["Engineering", "Marketing", "Sales", "HR", "Finance", "Support", "Operations", "Research"]
+    status_options = ["Active", "Inactive", "Suspended", "Pending"]
+    
+    for _ in range(num_users):
+        # Choose a registration date
+        registration_date = fake.date_time_between(start_date='-3y', end_date='now')
         
-        Args:
-            query: MongoDB query dictionary with 'filter' and 'options'
+        # Choose a role
+        role = random.choice(roles)
         
-        Returns:
-            Dictionary with query results and metadata
-        """
-        try:
-            collection = self._ensure_connection()
-            query_filter = query.get("filter", {})
-            query_options = query.get("options", {})
-            sort_option = query_options.get("sort", None)
-            limit_option = query_options.get("limit", None)
-            project_option = query_options.get("projection", None)
-            
-            cursor = collection.find(query_filter, project_option) if project_option else collection.find(query_filter)
-            
-            if sort_option:
-                cursor = cursor.sort(sort_option)
-            
-            if limit_option:
-                cursor = cursor.limit(limit_option)
-            
-            results = []
-            for doc in cursor:
-                if "_id" in doc:
-                    doc["_id"] = str(doc["_id"])
-                results.append(doc)
-            
-            return {
-                "success": True,
-                "query": query,
-                "results": results,
-                "count": len(results)
+        # Generate last login time (could be None for new users)
+        last_login = None
+        if random.random() > 0.1:  # 90% of users have logged in
+            last_login = fake.date_time_between(start_date=registration_date, end_date='now')
+        
+        # Generate a strong password
+        raw_password = fake.password(length=12)
+        
+        user = {
+            "user_id": str(uuid.uuid4()),
+            "username": fake.user_name(),
+            "email": fake.email(),
+            "password_hash": generate_password_hash(raw_password),
+            "first_name": fake.first_name(),
+            "last_name": fake.last_name(),
+            "role_id": role["role_id"],
+            "role_name": role["name"],
+            "department": random.choice(departments),
+            "phone": fake.phone_number(),
+            "address": {
+                "street": fake.street_address(),
+                "city": fake.city(),
+                "state": fake.state(),
+                "zip_code": fake.zipcode(),
+                "country": fake.country()
+            },
+            "status": random.choice(status_options),
+            "verified": random.random() > 0.1,  # 90% of users are verified
+            "created_at": registration_date,
+            "last_login": last_login,
+            "profile": {
+                "bio": fake.text(max_nb_chars=100) if random.random() > 0.3 else None,
+                "profile_picture": f"https://randomuser.me/api/portraits/{random.choice(['men', 'women'])}/{random.randint(1, 99)}.jpg" if random.random() > 0.2 else None,
+                "language_preference": random.choice(["en", "es", "fr", "de", "zh"])
+            },
+            "settings": {
+                "notifications_enabled": random.random() > 0.2,
+                "two_factor_auth": random.random() > 0.7,
+                "theme": random.choice(["light", "dark", "system"])
             }
-        except Exception as e:
-            return {"success": False, "error": f"Error executing MongoDB query: {str(e)}"}
+        }
+        users.append(user)
     
+    if users:
+        users_collection.insert_many(users)
+        logger.info(f"Inserted {len(users)} users")
     
-    # def insert(self, documents: Union[Dict[str, Any], List[Dict[str, Any]]]) -> Dict[str, Any]:
-    #     """Insert document(s) into the MongoDB collection.
-        
-    #     Args:
-    #         documents: Single document or list of documents to insert
-        
-    #     Returns:
-    #         Dictionary with operation result and metadata
-    #     """
-    #     try:
-    #         collection = self._ensure_connection()
-            
-    #         is_many = isinstance(documents, list)
-            
-    #         if is_many:
-    #             result = collection.insert_many(documents)
-    #             inserted_ids = [str(id) for id in result.inserted_ids]
-    #             inserted_count = len(result.inserted_ids)
-    #         else:
-    #             result = collection.insert_one(documents)
-    #             inserted_ids = [str(result.inserted_id)]
-    #             inserted_count = 1
-            
-    #         return {
-    #             "success": True,
-    #             "operation": "insert_many" if is_many else "insert_one",
-    #             "inserted_count": inserted_count,
-    #             "inserted_ids": inserted_ids
-    #         }
-    #     except Exception as e:
-    #         return {"success": False, "error": f"Error inserting into MongoDB: {str(e)}"}
+    return users
+
+def generate_activity_logs(users, num_logs=500):
+    """Generate fake user activity logs and insert into MongoDB"""
+    activity_logs = []
+    activity_types = [
+        "login", "logout", "profile_update", "password_change", 
+        "failed_login", "file_download", "file_upload", "settings_change",
+        "permission_granted", "permission_revoked", "account_locked"
+    ]
     
-    
-    def update(self, filter_criteria: Dict[str, Any], update_data: Dict[str, Any], 
-               update_many: bool = False, upsert: bool = False) -> Dict[str, Any]:
-        """Update documents in the MongoDB collection.
+    for _ in range(num_logs):
+        user = random.choice(users)
+        activity_type = random.choice(activity_types)
         
-        Args:
-            filter_criteria: Filter to select documents to update
-            update_data: Data to update (should include update operators like $set)
-            update_many: If True, updates all matching documents, otherwise updates only the first match
-            upsert: If True, creates a new document if no match is found
+        # Ensure activity timestamp is after user creation
+        activity_time = fake.date_time_between(
+            start_date=user["created_at"],
+            end_date='now'
+        )
         
-        Returns:
-            Dictionary with operation result and metadata
-        """
-        try:
-            collection = self._ensure_connection()
-            
-            if not any(key.startswith('$') for key in update_data.keys()):
-                update_data = {"$set": update_data}
-            
-            if update_many:
-                result = collection.update_many(filter_criteria, update_data, upsert=upsert)
-                modified_count = result.modified_count
-                matched_count = result.matched_count
-                upserted_id = str(result.upserted_id) if result.upserted_id else None
-            else:
-                result = collection.update_one(filter_criteria, update_data, upsert=upsert)
-                modified_count = result.modified_count
-                matched_count = result.matched_count
-                upserted_id = str(result.upserted_id) if result.upserted_id else None
-            
-            return {
-                "success": True,
-                "operation": "update_many" if update_many else "update_one",
-                "matched_count": matched_count,
-                "modified_count": modified_count,
-                "upserted_id": upserted_id
+        # Generate appropriate details based on activity type
+        details = {}
+        if activity_type == "login":
+            details = {
+                "ip_address": fake.ipv4(),
+                "device": random.choice(["desktop", "mobile", "tablet"]),
+                "browser": random.choice(["Chrome", "Firefox", "Safari", "Edge"]),
+                "success": True
             }
-        except Exception as e:
-            return {"success": False, "error": f"Error updating MongoDB: {str(e)}"}
-    
-    
-    def delete(self, filter_criteria: Dict[str, Any], delete_many: bool = False) -> Dict[str, Any]:
-        """Delete document(s) from the MongoDB collection.
-        
-        Args:
-            filter_criteria: Filter to select documents to delete
-            delete_many: If True, deletes all matching documents, otherwise deletes only the first match
-        
-        Returns:
-            Dictionary with operation result and metadata
-        """
-        try:
-            collection = self._ensure_connection()
-            
-            if delete_many:
-                result = collection.delete_many(filter_criteria)
-                deleted_count = result.deleted_count
-            else:
-                result = collection.delete_one(filter_criteria)
-                deleted_count = result.deleted_count
-            
-            return {
-                "success": True,
-                "operation": "delete_many" if delete_many else "delete_one",
-                "deleted_count": deleted_count
+        elif activity_type == "failed_login":
+            details = {
+                "ip_address": fake.ipv4(),
+                "device": random.choice(["desktop", "mobile", "tablet"]),
+                "browser": random.choice(["Chrome", "Firefox", "Safari", "Edge"]),
+                "reason": random.choice(["invalid_password", "account_locked", "security_check_failed"])
             }
-        except Exception as e:
-            return {"success": False, "error": f"Error deleting from MongoDB: {str(e)}"}
+        elif activity_type == "profile_update":
+            details = {
+                "fields_changed": random.sample(["name", "email", "phone", "address", "bio"], 
+                                             random.randint(1, 3))
+            }
+        elif activity_type == "settings_change":
+            details = {
+                "setting": random.choice(["notifications", "privacy", "theme", "language"]),
+                "old_value": "old_setting_value",
+                "new_value": "new_setting_value"
+            }
+        
+        activity_log = {
+            "log_id": str(uuid.uuid4()),
+            "user_id": user["user_id"],
+            "username": user["username"],
+            "activity_type": activity_type,
+            "timestamp": activity_time,
+            "details": details,
+            "ip_address": fake.ipv4() if "ip_address" not in details else details["ip_address"]
+        }
+        activity_logs.append(activity_log)
     
-    def close(self):
-        if self.mongo_client:
-            self.mongo_client.close()
-            self.mongo_client = None
+    if activity_logs:
+        activity_logs_collection.insert_many(activity_logs)
+        logger.info(f"Inserted {len(activity_logs)} activity logs")
+
+def main():
+    """Generate all fake data for the user management database"""
+    # Generate data
+    logger.info("Generating fake user management data for MongoDB...")
+    roles = generate_roles(num_roles=7)
+    users = generate_users(roles, num_users=100)
+    generate_activity_logs(users, num_logs=500)
+    
+    # Print some sample documents
+    logger.info("\nSample role document:")
+    logger.info(str(roles_collection.find_one()))
+    
+    logger.info("\nSample user document:")
+    logger.info(str(users_collection.find_one()))
+    
+    logger.info("\nSample activity log document:")
+    logger.info(str(activity_logs_collection.find_one()))
+    
+    logger.info("\nDone! MongoDB collections created with fake user management data.")
+
+if __name__ == "__main__":
+    main()

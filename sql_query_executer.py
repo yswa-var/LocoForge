@@ -13,6 +13,19 @@ class SQLiteExecutor:
         """
         self.sqlite_db_path = sqlite_db_path
         self.sqlite_conn = None
+
+    def query_creator(self, prompt: str) -> str:
+        """Create a SQL query based on the user's prompt.
+        
+        Args:
+            prompt: User's natural language query
+        
+        Returns:
+            SQL query string
+        """
+        # TODO: Implement query creation logic
+        
+        return "SELECT * FROM ohlc"
     
     def _ensure_connection(self):
         if not self.sqlite_conn or not hasattr(self.sqlite_conn, 'cursor'):
@@ -47,39 +60,6 @@ class SQLiteExecutor:
             }
         except Exception as e:
             return {"success": False, "error": f"Error executing SQLite query: {str(e)}"}
-    
-    # def insert(self, table: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    #     """Insert a record into the SQLite database.
-        
-    #     Args:
-    #         table: Table name
-    #         data: Dictionary of column:value pairs to insert
-        
-    #     Returns:
-    #         Dictionary with operation result and metadata
-    #     """
-    #     try:
-    #         conn = self._ensure_connection()
-    #         cursor = conn.cursor()
-            
-    #         columns = ', '.join(data.keys())
-    #         placeholders = ', '.join(['?' for _ in data.keys()])
-    #         values = list(data.values())
-            
-    #         query = f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"
-            
-    #         cursor.execute(query, values)
-    #         conn.commit()
-            
-    #         return {
-    #             "success": True,
-    #             "operation": "insert",
-    #             "table": table,
-    #             "row_id": cursor.lastrowid,
-    #             "affected_rows": cursor.rowcount
-    #         }
-    #     except Exception as e:
-    #         return {"success": False, "error": f"Error inserting into SQLite: {str(e)}"}
     
     
     def update(self, table: str, data: Dict[str, Any], condition: str) -> Dict[str, Any]:
@@ -116,12 +96,11 @@ class SQLiteExecutor:
             return {"success": False, "error": f"Error updating SQLite: {str(e)}"}
     
     
-    def delete(self, table: str, condition: str) -> Dict[str, Any]:
+    def delete(self, query: str, table: str) -> Dict[str, Any]:
         """Delete records from the SQLite database.
         
         Args:
-            table: Table name
-            condition: WHERE clause (without 'WHERE' keyword)
+            query: SQL DELETE query string 
         
         Returns:
             Dictionary with operation result and metadata
@@ -129,8 +108,6 @@ class SQLiteExecutor:
         try:
             conn = self._ensure_connection()
             cursor = conn.cursor()
-            
-            query = f"DELETE FROM {table} WHERE {condition}"
             
             cursor.execute(query)
             conn.commit()
@@ -140,7 +117,6 @@ class SQLiteExecutor:
                 "operation": "delete",
                 "table": table,
                 "affected_rows": cursor.rowcount,
-                "condition": condition
             }
         except Exception as e:
             return {"success": False, "error": f"Error deleting from SQLite: {str(e)}"}

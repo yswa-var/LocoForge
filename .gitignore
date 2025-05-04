@@ -8,3 +8,5 @@ bin/
 share/
 main.txt
 CACHEDIR.TAG
+logs/2025-05-04.log
+src/.env

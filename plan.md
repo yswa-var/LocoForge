@@ -53,3 +53,35 @@ To implement the above roadmap, we propose the following key components and modu
 - **`Config` module:** Centralizes configuration (database URLs, API keys, prompt templates, pagination size, etc.).  
 
 Each connector class will follow a tool/resource design: i.e. its methods are invoked by the LLM as “tools” (side-effect actions) or “resources” (data fetch) ([mcp-python-sdk – User's blog](https://streetsdigital.com/2025/04/04/mcp-python-sdk/#:~:text=The%20Model%20Context%20Protocol%20,MCP%20servers%20can)). The LangGraph node for each connector simply calls the appropriate method based on ChatGPT’s output. This separation of concerns makes the design extensible: for example, adding a new NoSQL store would mean adding another connector class and node.  
+
+
+JSON Parsing Errors in LLM Response
+Task 1.1: Fix JSON parsing in _generate_mongo_query method
+Task 1.2: Add validation for LLM response format
+Task 1.3: Add error handling for malformed JSON responses
+Task 1.4: Improve the system prompt to ensure consistent JSON output
+Aggregate Operation Test Failure
+Task 2.1: Fix the aggregation pipeline generation for total sales
+Task 2.2: Update the test to match the actual response format
+Task 2.3: Add proper aggregation result formatting
+Task 2.4: Verify the aggregation pipeline structure
+Delete Operation Test Failure
+Task 3.1: Fix the delete operation query generation
+Task 3.2: Add proper date handling in delete queries
+Task 3.3: Update the test to handle the actual response format
+Task 3.4: Add validation for delete operation parameters
+Error Handling Test Failure
+Task 4.1: Implement proper collection validation
+Task 4.2: Add collection existence check before operations
+Task 4.3: Update error handling test cases
+Task 4.4: Add proper error messages for invalid collections
+Insert Operation Test Failure
+Task 5.1: Fix the insert operation query generation
+Task 5.2: Add proper document validation
+Task 5.3: Update the test to handle the actual response format
+Task 5.4: Add validation for required fields
+General Improvements
+Task 6.1: Add response format validation
+Task 6.2: Improve error messages
+Task 6.3: Add logging for LLM responses
+Task 6.4: Add retry mechanism for LLM calls
