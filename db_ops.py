@@ -19,12 +19,12 @@ def check_db_exists(db_name="ohlc.db"):
 
 def check_table_exists(cursor, table_name="ohlc"):
     """Check if a specific table exists in the database."""
-    cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return cursor.fetchone() is not None
 
 def check_table_has_data(cursor, table_name="ohlc"):
     """Check if a table has any records."""
-    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+    cursor.execute("SELECT COUNT(*) FROM ?", (table_name,))
     count = cursor.fetchone()[0]
     return count > 0
 
@@ -40,6 +40,7 @@ def create_ohlc_table(cursor):
         volume INTEGER
     )
     ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_ohlc_date ON ohlc(date)')
 
 def download_aapl_data():
     """Download Apple stock data from January 1, 2020 to current date."""

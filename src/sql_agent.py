@@ -10,7 +10,15 @@ class SQLAgent:
         self.db_path = db_path
         logger.info(f"Initializing SQLAgent with database: {db_path}")
         self.conn = sqlite3.connect(db_path)
+        self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
+    
+    def _is_read_query(self, sql: str) -> bool:
+        """Determine if a query is read-only."""
+        normalized_sql = sql.strip().upper()
+        return (normalized_sql.startswith("SELECT") or 
+                normalized_sql.startswith("PRAGMA") or
+                normalized_sql.startswith("EXPLAIN"))
         
     def _get_table_schema(self) -> str:
         """Get the schema of the database tables."""

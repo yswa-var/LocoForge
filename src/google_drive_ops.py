@@ -2,6 +2,11 @@ import os
 import base64
 import io
 import json
+import hashlib
+import time
+import pickle
+import os.path
+from cachetools import TTLCache, LRUCache
 from typing import Dict, List, Optional, Union, Any, Tuple
 import re
 from dataclasses import dataclass
@@ -20,9 +25,110 @@ from google.auth.exceptions import RefreshError
 import mimetypes
 import logging
 from functools import partial
+from llm_utils import process_message
 
 logger = logging.getLogger(__name__)
 
+class DriveCache:
+    """Cache manager for Google Drive opertions"""
+
+    def  __init__(self, cache_dir='./cache', memory_size=100, ttl=300):
+        """
+        Initialize the cache manager.
+        
+        Args:
+            cache_dir: Directory for storing persistent cache
+            memory_size: Maximum items in memory cache
+            ttl: Time to live for cached items (seconds)
+        """
+        self.cache_dir = cache_dir
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # In-memory cache for API responses
+        self.memory_cache = TTLCache(maxsize=memory_size, ttl=ttl)
+        
+        # Larger LRU cache for file content
+        self.content_cache = LRUCache(maxsize=20)
+        
+    def _get_cache_key(self, operation, params):
+        """Generate a unique cache key for the operation and parameters"""
+        param_str = json.dumps(params, sort_keys=True)
+        key = f"{operation}:{param_str}"
+        return hashlib.md5(key.encode()).hexdigest()
+    
+    def get(self, operation, params):
+        """Get a cached result for an operation"""
+        key = self._get_cache_key(operation, params)
+        
+        # First check memory cache
+        if key in self.memory_cache:
+            logger.debug(f"Cache hit (memory): {operation}")
+            return self.memory_cache[key]
+        
+        # Then check disk cache
+        cache_file = os.path.join(self.cache_dir, key)
+        if os.path.exists(cache_file):
+            try:
+                # Check if cache is still valid (file modified time)
+                if time.time() - os.path.getmtime(cache_file) <= 3600:  # 1 hour TTL for disk
+                    with open(cache_file, 'rb') as f:
+                        logger.debug(f"Cache hit (disk): {operation}")
+                        result = pickle.load(f)
+                        # Add back to memory cache
+                        self.memory_cache[key] = result
+                        return result
+            except Exception as e:
+                logger.warning(f"Error reading cache: {str(e)}")
+        
+        # Cache miss
+        return None
+    
+    def set(self, operation, params, result, persist=False):
+        """Store a result in cache"""
+        key = self._get_cache_key(operation, params)
+        
+        # Always store in memory cache
+        self.memory_cache[key] = result
+        
+        # Optionally persist to disk
+        if persist:
+            cache_file = os.path.join(self.cache_dir, key)
+            try:
+                with open(cache_file, 'wb') as f:
+                    pickle.dump(result, f)
+            except Exception as e:
+                logger.warning(f"Error writing to cache: {str(e)}")
+    
+    def invalidate(self, operation=None, params=None):
+        """Invalidate cache entries"""
+        if operation and params:
+            # Invalidate specific entry
+            key = self._get_cache_key(operation, params)
+            if key in self.memory_cache:
+                del self.memory_cache[key]
+            
+            cache_file = os.path.join(self.cache_dir, key)
+            if os.path.exists(cache_file):
+                try:
+                    os.remove(cache_file)
+                except:
+                    pass
+        elif operation:
+            # Invalidate all entries for an operation
+            keys_to_remove = [k for k in list(self.memory_cache.keys()) 
+                             if k.startswith(operation)]
+            for k in keys_to_remove:
+                del self.memory_cache[k]
+        else:
+            # Clear entire cache
+            self.memory_cache.clear()
+            
+            # Remove disk cache files
+            for file in os.listdir(self.cache_dir):
+                try:
+                    os.remove(os.path.join(self.cache_dir, file))
+                except:
+                    pass
 class DriveConnector:
     """
     Google Drive connector for LocoForge that provides file operations.
@@ -35,7 +141,8 @@ class DriveConnector:
     def __init__(self, auth_method: str = 'service_account', 
                  credentials_path: str = 'credentials.json',
                  token_path: str = 'token.json',
-                 max_workers: int = 10):
+                 max_workers: int = 10,
+                 enable_cache: bool = True):
         """
         Initialize the Google Drive connector with authentication.
         
@@ -44,12 +151,18 @@ class DriveConnector:
             credentials_path: Path to the credentials file
             token_path: Path to the token file (for OAuth)
             max_workers: Maximum number of concurrent operations
+            enable_cache: Whether to enable caching
         """
         self.auth_method = auth_method
         self.credentials_path = credentials_path
         self.token_path = token_path
         self.service = self._authenticate()
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        
+        self.cache_enabled = enable_cache
+        if enable_cache:
+            self.cache = DriveCache()
+            logger.info("Drive cache initialized")
 
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run a synchronous function in a thread pool."""
@@ -147,6 +260,19 @@ class DriveConnector:
         Returns:
             JSON string containing file metadata
         """
+        params = {
+        "query": query,
+        "folder_id": folder_id,
+        "page_size": page_size,
+        "fields": fields
+        }
+        
+        if self.cache_enabled:
+            cached_result = self.cache.get("list_files", params)
+            if cached_result:
+                logger.info("Using cached list_files results")
+                return cached_result
+        
         # Build the query
         drive_query = []
         
@@ -176,7 +302,12 @@ class DriveConnector:
         )
         
         # Return just the files array directly
-        return json.dumps({"files": results.get("files", [])})
+        result_json =  json.dumps({"files": results.get("files", [])})
+        
+        if self.cache_enabled:
+            self.cache.set("list_files", params, result_json)
+    
+        return result_json
     
     async def download_file(self, file_id: str, return_format: str = 'text') -> str:
         """
@@ -283,6 +414,15 @@ class DriveConnector:
                 fields='id,name,mimeType,createdTime,modifiedTime,size'
             ).execute
         )
+        if self.cache_enabled:
+        # Invalidate list_files cache since folder contents changed
+            self.cache.invalidate("list_files")
+            # If we're uploading to a specific folder, invalidate that folder's listings
+            if parent_folder_id:
+                self.cache.invalidate("list_files", {"folder_id": parent_folder_id})
+            # Invalidate search results since new content is available
+            self.cache.invalidate("search_files")
+        
         
         return json.dumps(file)
     
@@ -311,6 +451,13 @@ class DriveConnector:
                 fields='id,name,mimeType,createdTime'
             ).execute
         )
+        
+        if self.cache_enabled:
+        # Invalidate list_files cache since folder structure changed
+            self.cache.invalidate("list_files")
+            # If we're creating in a specific folder, invalidate that folder's listing
+            if parent_folder_id:
+                self.cache.invalidate("list_files", {"folder_id": parent_folder_id})
         
         return json.dumps(folder)
     
@@ -357,6 +504,14 @@ class DriveConnector:
                     fields='id,name,mimeType,modifiedTime'
                 ).execute
             )
+            if self.cache_enabled:
+                # Invalidate specific file download cache
+                self.cache.invalidate("download_file", {"file_id": file_id})
+                # Invalidate list operations that might show this file
+                self.cache.invalidate("list_files")
+                # Invalidate search results
+                self.cache.invalidate("search_files")
+    
         
         return json.dumps(file)
     
@@ -371,41 +526,73 @@ class DriveConnector:
         Returns:
             JSON string with the operation status
         """
+        if not file_id:
+            return json.dumps({"error": "No file ID provided"})
+            
         try:
-            # First check if the file exists
+            # Check if file exists and get its name for better error messages
             try:
-                await self._run_in_thread(
+                file_info = await self._run_in_thread(
                     self.service.files().get(
                         fileId=file_id,
-                        fields="id"
+                        fields="id,name,trashed"
                     ).execute
                 )
+                
+                # Check if file is already in trash when we're trying to trash it
+                if not permanent and file_info.get('trashed', False):
+                    return json.dumps({
+                        "status": "warning", 
+                        "message": f"File '{file_info.get('name', 'unknown')}' is already in trash"
+                    })
+                    
             except Exception as e:
-                if "File not found" in str(e):
-                    return json.dumps({"error": "The file or folder you're trying to delete was not found. It may have been already deleted or moved."})
-                raise
+                error_message = str(e)
+                if "File not found" in error_message or "not found" in error_message:
+                    return json.dumps({
+                        "error": f"File with ID '{file_id}' not found. It may have been deleted or you don't have access."
+                    })
+                logger.error(f"Error checking file: {error_message}")
+                return json.dumps({"error": f"Error accessing file: {error_message}"})
 
+            # Now perform the actual delete operation
             if permanent:
                 await self._run_in_thread(
-                    self.service.files().delete(
-                        fileId=file_id
-                    ).execute
+                    self.service.files().delete(fileId=file_id).execute
                 )
-                response = {"status": "success", "message": "File permanently deleted"}
+                response = {"status": "success", "message": f"File '{file_info.get('name', file_id)}' permanently deleted"}
             else:
-                # Move to trash (this is Google Drive's default behavior)
+                # Move to trash
                 await self._run_in_thread(
                     self.service.files().update(
                         fileId=file_id,
                         body={"trashed": True}
                     ).execute
                 )
-                response = {"status": "success", "message": "File moved to trash"}
+                response = {"status": "success", "message": f"File '{file_info.get('name', file_id)}' moved to trash"}
+                
+                if self.cache_enabled:
+                    # Invalidate the specific file's download cache
+                    self.cache.invalidate("download_file", {"file_id": file_id})
+                    # Invalidate list_files since directory contents changed
+                    self.cache.invalidate("list_files")
+                    # If we know the parent folder, specifically invalidate that cache
+                    if 'parents' in file_info:
+                        for parent in file_info.get('parents', []):
+                            self.cache.invalidate("list_files", {"folder_id": parent})
+                    # Invalidate search operations
+                    self.cache.invalidate("search_files")
             
             return json.dumps(response)
+                
         except Exception as e:
-            logger.error(f"Error deleting file {file_id}: {str(e)}", exc_info=True)
-            return json.dumps({"error": str(e)})
+            error_message = str(e)
+            logger.error(f"Error deleting file {file_id}: {error_message}", exc_info=True)
+            
+            if "insufficient permissions" in error_message.lower():
+                return json.dumps({"error": "You don't have permission to delete this file"})
+            else:
+                return json.dumps({"error": f"Delete operation failed: {error_message}"})
     
     async def search_files(self, query_text: str, page_size: int = 100) -> str:
         """
@@ -780,3 +967,9 @@ Available commands:
 7. Search files: "search for: <query>"
         """
         return help_text
+    
+    async def close(self):
+        """Clean up resources used by DriveAgent."""
+        if hasattr(self.drive, 'executor'):
+            self.drive.executor.shutdown(wait=True)
+        logger.info("DriveAgent resources have been released")
