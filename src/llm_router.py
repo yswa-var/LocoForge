@@ -36,71 +36,35 @@ def process_message(messages: list) -> str:
 
 def task_creation_agent(objective: str) -> Dict[str, Any]:
     """
-    This function takes an objective and returns a structured task specification.
+    Create a task specification from the user's objective.
     
     Args:
-        objective (str): The natural language objective to be accomplished
+        objective (str): The user's objective in natural language
         
     Returns:
-        Dict[str, Any]: A structured task specification including:
-            - agent_type: "sql" or "nosql" or "both"
-            - task_type: The type of operation (e.g., "query", "insert", "update", "delete")
-            - prompt: The natural language prompt for the specific agent
-            - metadata: Additional context or requirements
+        Dict[str, Any]: Task specification
     """
-    if not objective or objective.strip() == "":
-        raise DatabaseError(
-            "Empty request received",
-            "Please provide a specific task or question you'd like help with."
-        )
-
-    logger.info(f"Creating task specification for objective: {objective}")
-    system_prompt = """You are a task routing expert. Your job is to analyze database-related objectives and determine which database agent should handle the task based on the following strict rules:
-
-ROUTING RULES:
-1. Use NoSQL agent (mongodb) for ALL user-related data including:
-   * User profiles and authentication
-   * User roles and permissions
-   * User activity logs
-   * User preferences and settings
-   * User sessions and tokens
-   * User notifications
-   * User feedback and ratings
-   * User-generated content
-   * User analytics and tracking
-   * User relationships and connections
-
-2. Use SQL agent for ALL business and sales-related data including:
-   * Sales transactions and orders
-   * Product catalog and inventory
-   * Customer business information
-   * Financial records and transactions
-   * Business analytics and reporting
-   * Pricing and discounts
-   * Business metrics and KPIs
-   * Supply chain and logistics
-   * Business relationships and partnerships
-   * Business documents and contracts
-
-3. Use both agents ONLY when:
-   * The task explicitly requires combining user data with business data
-   * The operation needs to update both user and business records
-   * The query needs to join user information with business data
-
-Return a JSON object with this structure:
-{
-    "agent_type": "sql" | "nosql" | "both",
-    "task_type": "query" | "insert" | "update" | "delete" | "schema" | "management",
-    "prompt": "The natural language prompt for the agent",
-    "metadata": {
-        "reasoning": "Explanation of why this agent was chosen based on the routing rules",
-        "data_category": "user" | "business" | "both",
-        "requirements": ["List of specific requirements"],
-        "constraints": ["List of any constraints"]
+    system_prompt = """You are a task creation agent that converts natural language objectives into structured task specifications.
+    Your response must be a valid JSON object with the following structure:
+    {
+        "agent_type": "sql" | "nosql" | "both",
+        "task_type": "query" | "update" | "delete" | "insert",
+        "prompt": "The original user objective"
     }
-}
-
-IMPORTANT: Always analyze the objective carefully to determine if it's primarily about user data or business data."""
+    
+    Guidelines:
+    1. Choose the appropriate agent_type based on the task:
+       - Use "sql" for structured data queries and operations
+       - Use "nosql" for document-based or unstructured data
+       - Use "both" when the task requires both types of databases
+    2. Choose the appropriate task_type based on the operation:
+       - "query" for SELECT or FIND operations
+       - "update" for UPDATE or MODIFY operations
+       - "delete" for DELETE or REMOVE operations
+       - "insert" for INSERT or CREATE operations
+    3. Keep the prompt as close to the original objective as possible
+    4. Ensure the response is valid JSON
+    """
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -109,18 +73,40 @@ IMPORTANT: Always analyze the objective carefully to determine if it's primarily
     
     try:
         response = llm.invoke(messages)
-        task_spec = json.loads(response.content)
-        logger.info(f"Successfully created task specification: {json.dumps(task_spec, indent=2)}")
-        return task_spec
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse task specification: {str(e)}", exc_info=True)
-        raise DatabaseError(
-            "Failed to understand your request",
-            "Please rephrase your request in a clearer way. For example:\n"
-            "- 'Show me all products with low inventory'\n"
-            "- 'Find users who made recent purchases'\n"
-            "- 'Update the price of product X'"
-        )
+        logger.debug(f"Raw LLM response: {response.content}")
+        
+        try:
+            task_spec = json.loads(response.content)
+            logger.info(f"Successfully created task specification: {json.dumps(task_spec, indent=2)}")
+            
+            # Validate required fields
+            required_fields = ["agent_type", "task_type", "prompt"]
+            missing_fields = [field for field in required_fields if field not in task_spec]
+            if missing_fields:
+                raise ValueError(f"Missing required fields in task specification: {missing_fields}")
+            
+            # Validate agent_type
+            valid_agent_types = ["sql", "nosql", "both"]
+            if task_spec["agent_type"] not in valid_agent_types:
+                raise ValueError(f"Invalid agent_type: {task_spec['agent_type']}. Must be one of {valid_agent_types}")
+            
+            # Validate task_type
+            valid_task_types = ["query", "update", "delete", "insert"]
+            if task_spec["task_type"] not in valid_task_types:
+                raise ValueError(f"Invalid task_type: {task_spec['task_type']}. Must be one of {valid_task_types}")
+            
+            return task_spec
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse task specification: {str(e)}")
+            logger.error(f"Raw response content: {response.content}")
+            raise DatabaseError(
+                "Failed to understand your request",
+                "Please rephrase your request in a clearer way. For example:\n"
+                "- 'Show me all products with low inventory'\n"
+                "- 'Find users who made recent purchases'\n"
+                "- 'Update the price of product X'"
+            )
     except Exception as e:
         logger.error(f"Unexpected error in task creation: {str(e)}", exc_info=True)
         raise DatabaseError(

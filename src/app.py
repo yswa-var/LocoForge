@@ -77,35 +77,30 @@ if prompt := st.chat_input("What's on your mind?"):
             if "results" in result and result["results"]:
                 for agent_type, result_data in result["results"].items():
                     st.subheader(f"{agent_type.upper()} Results")
-                    if isinstance(result_data, dict):
-                        # Handle NoSQL results which are nested in a dictionary
-                        if "results" in result_data:
-                            actual_results = result_data["results"]
-                            if isinstance(actual_results, list):
-                                # Display each result in a pretty JSON format
-                                for idx, res in enumerate(actual_results, 1):
-                                    with st.expander(f"Result {idx}", expanded=True):
-                                        st.json(res)
-                            elif isinstance(actual_results, dict):
-                                st.json(actual_results)
-                            else:
-                                st.write(actual_results)
-                        else:
-                            # If it's a regular dictionary without nested results
-                            st.json(result_data)
-                    elif isinstance(result_data, pd.DataFrame):
-                        # Only use DataFrame display for actual tabular data
-                        if len(result_data.columns) > 1:  # If it's a proper table
-                            st.dataframe(result_data, use_container_width=True)
-                        else:
-                            st.json(result_data.to_dict(orient='records'))
-                    elif isinstance(result_data, list):
-                        # Display list items in JSON format
-                        for idx, item in enumerate(result_data, 1):
-                            with st.expander(f"Item {idx}", expanded=True):
-                                st.json(item)
+                    
+                    # Check if the result is already in our structured format
+                    if isinstance(result_data, dict) and "data" in result_data:
+                        # Display the structured data
+                        st.json(result_data)
+                        
+                        # Optionally display as a table as well
+                        if result_data.get("data"):
+                            df = pd.DataFrame(result_data["data"])
+                            st.dataframe(df)
                     else:
-                        st.write(result_data)
+                        # Handle legacy or unstructured data
+                        try:
+                            if isinstance(result_data, dict):
+                                st.json(result_data)
+                            elif isinstance(result_data, pd.DataFrame):
+                                st.dataframe(result_data)
+                            elif isinstance(result_data, list):
+                                st.json(result_data)
+                            else:
+                                st.write(result_data)
+                        except Exception as e:
+                            st.error(f"Error displaying results: {str(e)}")
+                            st.write("Raw result:", result_data)
             
             # Add assistant response to chat history with results
             st.session_state.messages.append({

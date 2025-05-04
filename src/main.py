@@ -7,6 +7,8 @@ import os
 from dotenv import load_dotenv
 import json
 import pandas as pd
+from datetime import datetime
+from logger import default_logger as logger
 
 from llm_router import task_creation_agent, execute_task
 from sql_agent import SQLAgent
@@ -21,6 +23,13 @@ llm = ChatOpenAI(
     temperature=0.7,
     api_key=os.getenv("OPENAI_API_KEY")
 )
+
+# Custom JSON encoder to handle datetime objects
+class CustomJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
 
 # Define the state type for our graph
 class GraphState(TypedDict):
@@ -69,38 +78,60 @@ def execute_task_node(state: GraphState) -> GraphState:
         # Execute task
         results = execute_task(state["task_spec"], sql_agent, nosql_agent)
         
-        # Create response message
-        response_content = f"Task executed successfully.\n\n"
-        response_content += f"Agent Type: {state['task_spec']['agent_type']}\n"
-        response_content += f"Task Type: {state['task_spec']['task_type']}\n\n"
+        # Create structured response
+        response_data = {
+            "status": "success",
+            "agent_type": state["task_spec"]["agent_type"],
+            "task_type": state["task_spec"]["task_type"],
+            "results": {}
+        }
         
-        # Convert results to pandas DataFrames
-        if results["results"]:
+        # Convert results to pandas DataFrames and structure the response
+        if results.get("results"):
             for agent_type, result in results["results"].items():
-                if isinstance(result, (list, dict)):
-                    # Convert to DataFrame
-                    if isinstance(result, dict):
-                        # If it's a single dictionary, convert to list of one item
-                        df = pd.DataFrame([result])
+                try:
+                    if isinstance(result, (list, dict)):
+                        # Convert to DataFrame
+                        if isinstance(result, dict):
+                            # If it's a single dictionary, convert to list of one item
+                            df = pd.DataFrame([result])
+                        else:
+                            # If it's already a list, convert directly
+                            df = pd.DataFrame(result)
+                        # Convert DataFrame to dict for JSON serialization
+                        response_data["results"][agent_type] = {
+                            "data": df.to_dict(orient='records'),
+                            "columns": df.columns.tolist(),
+                            "row_count": len(df)
+                        }
                     else:
-                        # If it's already a list, convert directly
-                        df = pd.DataFrame(result)
-                    results["results"][agent_type] = df
+                        # Keep original result if not convertible to DataFrame
+                        response_data["results"][agent_type] = result
+                except Exception as e:
+                    logger.error(f"Error converting {agent_type} results to DataFrame: {str(e)}")
+                    # Keep the original result if conversion fails
+                    response_data["results"][agent_type] = result
         
         # Add response to messages
-        response = AIMessage(content=response_content)
+        response = AIMessage(content=json.dumps(response_data, indent=2, cls=CustomJSONEncoder))
         
         return {
             "messages": state["messages"] + [response],
             "task_spec": state["task_spec"],
-            "results": results,
+            "results": response_data,
             "error": None
         }
     except Exception as e:
+        logger.error(f"Error in execute_task_node: {str(e)}", exc_info=True)
+        error_response = {
+            "status": "error",
+            "error": str(e),
+            "message": "An error occurred while processing your request"
+        }
         return {
-            "messages": state["messages"],
+            "messages": state["messages"] + [AIMessage(content=json.dumps(error_response, indent=2, cls=CustomJSONEncoder))],
             "task_spec": state["task_spec"],
-            "results": {},
+            "results": error_response,
             "error": str(e)
         }
     finally:
@@ -143,7 +174,9 @@ def create_graph() -> Graph:
     workflow.set_finish_point("error_handler")
     
     # Compile the graph
-    return workflow.compile()
+    compiled_graph = workflow.compile()
+    
+    return compiled_graph
 
 def main():
     """Main function to demonstrate the workflow."""
