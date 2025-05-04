@@ -8,13 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import numpy as np
 from datetime import datetime, timedelta
-import faiss
-from sentence_transformers import SentenceTransformer
-import PyPDF2
-import docx
-import pandas as pd
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
@@ -25,136 +19,9 @@ from google.auth.transport.requests import Request
 from google.auth.exceptions import RefreshError
 import mimetypes
 import logging
-from olf.llm_router import process_message
 from functools import partial
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class DocumentMetadata:
-    """Metadata for a document in the semantic index."""
-    file_id: str
-    name: str
-    mime_type: str
-    created_time: str
-    modified_time: str
-    size: int
-    content_preview: str = ""  # Make content_preview optional with default empty string
-    embedding: Optional[np.ndarray] = None
-
-class SemanticIndex:
-    """Manages semantic search capabilities using FAISS and sentence transformers."""
-    
-    def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
-        """
-        Initialize the semantic index.
-        
-        Args:
-            model_name: Name of the sentence transformer model to use
-        """
-        self.model = SentenceTransformer(model_name)
-        self.dimension = self.model.get_sentence_embedding_dimension()
-        self.index = faiss.IndexFlatL2(self.dimension)
-        self.documents: List[DocumentMetadata] = []
-        
-    def _extract_text(self, file_content: bytes, mime_type: str) -> str:
-        """
-        Extract text content from various file types.
-        
-        Args:
-            file_content: Raw file content
-            mime_type: MIME type of the file
-            
-        Returns:
-            Extracted text content
-        """
-        try:
-            if mime_type == 'application/pdf':
-                pdf_file = io.BytesIO(file_content)
-                reader = PyPDF2.PdfReader(pdf_file)
-                text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-                return text
-                
-            elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-                docx_file = io.BytesIO(file_content)
-                doc = docx.Document(docx_file)
-                return "\n".join([paragraph.text for paragraph in doc.paragraphs])
-                
-            elif mime_type == 'text/plain':
-                return file_content.decode('utf-8')
-                
-            elif mime_type == 'text/csv':
-                csv_file = io.BytesIO(file_content)
-                df = pd.read_csv(csv_file)
-                return df.to_string()
-                
-            else:
-                return ""
-                
-        except Exception as e:
-            logger.error(f"Error extracting text from file: {str(e)}")
-            return ""
-    
-    async def add_document(self, metadata: DocumentMetadata, content: bytes) -> None:
-        """
-        Add a document to the semantic index.
-        
-        Args:
-            metadata: Document metadata
-            content: Document content
-        """
-        # Extract text content
-        text_content = self._extract_text(content, metadata.mime_type)
-        if not text_content:
-            return
-            
-        # Create document preview
-        preview_length = 500
-        metadata.content_preview = text_content[:preview_length] + "..." if len(text_content) > preview_length else text_content
-        
-        # Generate embedding
-        combined_text = f"{metadata.name} {text_content}"
-        embedding = self.model.encode(combined_text)
-        
-        # Add to FAISS index
-        self.index.add(np.array([embedding], dtype=np.float32))
-        metadata.embedding = embedding
-        self.documents.append(metadata)
-        
-    async def search(self, query: str, k: int = 5) -> List[Tuple[DocumentMetadata, float]]:
-        """
-        Search for documents semantically similar to the query.
-        
-        Args:
-            query: Search query
-            k: Number of results to return
-            
-        Returns:
-            List of (document, similarity score) tuples
-        """
-        if not self.documents:
-            return []
-            
-        # Generate query embedding
-        query_embedding = self.model.encode(query)
-        
-        # Search in FAISS index
-        distances, indices = self.index.search(np.array([query_embedding], dtype=np.float32), k)
-        
-        # Return results with metadata
-        results = []
-        for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx < len(self.documents):  # Valid index
-                results.append((self.documents[idx], float(distance)))
-                
-        return results
-    
-    def clear(self) -> None:
-        """Clear the semantic index."""
-        self.index = faiss.IndexFlatL2(self.dimension)
-        self.documents = []
 
 class DriveConnector:
     """
@@ -183,8 +50,7 @@ class DriveConnector:
         self.token_path = token_path
         self.service = self._authenticate()
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.semantic_index = SemanticIndex()
-        
+
     async def _run_in_thread(self, func, *args, **kwargs):
         """Run a synchronous function in a thread pool."""
         loop = asyncio.get_event_loop()
@@ -309,7 +175,8 @@ class DriveConnector:
             ).execute
         )
         
-        return json.dumps(results)
+        # Return just the files array directly
+        return json.dumps({"files": results.get("files", [])})
     
     async def download_file(self, file_id: str, return_format: str = 'text') -> str:
         """
@@ -570,131 +437,6 @@ class DriveConnector:
         
         return json.dumps(results)
 
-    async def index_drive(self, folder_id: str = None) -> None:
-        """
-        Index all files in Drive for semantic search.
-        
-        Args:
-            folder_id: Optional folder ID to index
-        """
-        # Clear existing index
-        self.semantic_index.clear()
-        
-        # List all files
-        query = f"'{folder_id}' in parents" if folder_id else None
-        results = await self.list_files(query=query, page_size=1000)
-        files = json.loads(results).get('files', [])
-        
-        # Index each file
-        for file in files:
-            try:
-                # Skip folders and Google Docs/Sheets/Slides
-                if file['mimeType'] == 'application/vnd.google-apps.folder':
-                    continue
-                    
-                # Handle Google Docs/Sheets/Slides
-                if file['mimeType'] in [
-                    'application/vnd.google-apps.document',
-                    'application/vnd.google-apps.spreadsheet',
-                    'application/vnd.google-apps.presentation'
-                ]:
-                    # Create metadata with empty content preview
-                    metadata = DocumentMetadata(
-                        file_id=file['id'],
-                        name=file['name'],
-                        mime_type=file['mimeType'],
-                        created_time=file['createdTime'],
-                        modified_time=file['modifiedTime'],
-                        size=int(file.get('size', 0)),
-                        content_preview=f"Google {file['mimeType'].split('.')[-1]} file: {file['name']}"
-                    )
-                    # Add to semantic index with empty content
-                    await self.semantic_index.add_document(metadata, b"")
-                    continue
-                
-                # For regular files, download and process content
-                content_result = await self.download_file(file['id'], return_format='bytes')
-                content_data = json.loads(content_result)
-                
-                if 'content' in content_data:
-                    # Create metadata
-                    metadata = DocumentMetadata(
-                        file_id=file['id'],
-                        name=file['name'],
-                        mime_type=file['mimeType'],
-                        created_time=file['createdTime'],
-                        modified_time=file['modifiedTime'],
-                        size=int(file.get('size', 0))
-                    )
-                    
-                    # Add to semantic index
-                    content = base64.b64decode(content_data['content'])
-                    await self.semantic_index.add_document(metadata, content)
-                    
-            except Exception as e:
-                logger.error(f"Error indexing file {file['name']}: {str(e)}")
-                continue  # Continue with next file even if one fails
-                
-    async def semantic_search(self, query: str, confirm_intent: bool = True) -> str:
-        """
-        Perform semantic search with optional intent confirmation.
-        
-        Args:
-            query: Search query
-            confirm_intent: Whether to confirm intent with LLM
-            
-        Returns:
-            JSON string with search results and intent confirmation
-        """
-        # Check if index is empty
-        if not self.semantic_index.documents:
-            return json.dumps({
-                "error": "No documents indexed. Please run index_drive() first.",
-                "results": []
-            })
-            
-        # Perform semantic search
-        results = await self.semantic_index.search(query)
-        
-        if not results:
-            return json.dumps({
-                "error": "No matching documents found",
-                "results": []
-            })
-            
-        # Format results for LLM confirmation
-        formatted_results = []
-        for doc, score in results:
-            formatted_results.append({
-                "name": doc.name,
-                "type": doc.mime_type,
-                "created": doc.created_time,
-                "modified": doc.modified_time,
-                "preview": doc.content_preview,
-                "similarity_score": score
-            })
-            
-        if confirm_intent:
-            # Ask LLM to confirm if results match intent
-            system_message = {
-                "role": "system",
-                "content": "You are a helpful assistant that confirms if search results match the user's intent."
-            }
-            
-            user_message = {
-                "role": "user",
-                "content": f"Query: {query}\n\nFound documents:\n{json.dumps(formatted_results, indent=2)}\n\nDo these documents match the user's intent? If not, what might they be looking for instead?"
-            }
-            
-            confirmation = process_message([system_message, user_message])
-            
-            return json.dumps({
-                "results": formatted_results,
-                "intent_confirmation": confirmation
-            })
-        else:
-            return json.dumps({"results": formatted_results})
-
 class DriveOperation(Enum):
     LIST = "list"
     DOWNLOAD = "download"
@@ -854,18 +596,31 @@ class DriveAgent:
     """
     
     def __init__(self, auth_method: str = 'service_account', 
-                 credentials_path: str = 'credentials.json',
-                 token_path: str = 'token.json',
+                 credentials_path: str = None,
+                 token_path: str = None,
                  max_workers: int = 10):
         """
         Initialize the Drive Agent with authentication.
         
         Args:
             auth_method: Authentication method ('service_account' or 'oauth')
-            credentials_path: Path to the credentials file
-            token_path: Path to the token file (for OAuth)
+            credentials_path: Path to the credentials file (optional, will use default paths if None)
+            token_path: Path to the token file (optional, will use default paths if None)
             max_workers: Maximum number of concurrent operations
         """
+        # Set default paths if not provided
+        if credentials_path is None:
+            credentials_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
+        if token_path is None:
+            token_path = os.path.join(os.path.dirname(__file__), 'token.json')
+            
+        # Verify credentials file exists
+        if not os.path.exists(credentials_path):
+            raise FileNotFoundError(
+                f"Credentials file not found at {credentials_path}. "
+                "Please ensure you have downloaded the credentials file from Google Cloud Console."
+            )
+            
         self.drive = DriveConnector(auth_method, credentials_path, token_path, max_workers)
         
     def _parse_command(self, command: str) -> DriveCommand:
@@ -950,44 +705,45 @@ class DriveAgent:
             drive_command = self._parse_command(command)
             logger.info(f"Parsed command: {drive_command}")
             
+            result = None
             if drive_command.operation == DriveOperation.LIST:
-                return await self.drive.list_files(**drive_command.parameters)
+                result = await self.drive.list_files(**drive_command.parameters)
                 
             elif drive_command.operation == DriveOperation.DOWNLOAD:
-                return await self.drive.download_file(**drive_command.parameters)
+                result = await self.drive.download_file(**drive_command.parameters)
                 
             elif drive_command.operation == DriveOperation.UPLOAD:
-                return await self.drive.upload_file(**drive_command.parameters)
+                result = await self.drive.upload_file(**drive_command.parameters)
                 
             elif drive_command.operation == DriveOperation.CREATE_FOLDER:
-                return await self.drive.create_folder(**drive_command.parameters)
+                result = await self.drive.create_folder(**drive_command.parameters)
                 
             elif drive_command.operation == DriveOperation.UPDATE:
-                return await self.drive.update_file(**drive_command.parameters)
+                result = await self.drive.update_file(**drive_command.parameters)
                 
             elif drive_command.operation == DriveOperation.DELETE:
                 try:
-                    return await self.drive.delete_file(**drive_command.parameters)
+                    result = await self.drive.delete_file(**drive_command.parameters)
                 except Exception as e:
                     if "File not found" in str(e):
                         return json.dumps({"error": "The file or folder you're trying to delete was not found. It may have been already deleted or moved."})
                     raise
                 
             elif drive_command.operation == DriveOperation.SEARCH:
-                query_text = drive_command.parameters["query_text"]
-                
-                # Check if this is a simple file name search
-                if query_text.startswith("name contains") or query_text.endswith((".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx")):
-                    return await self.drive.search_files(query_text)
-                # Check if this is a semantic search query
-                elif any(keyword in command.lower() for keyword in ['find', 'search for', 'look for', 'locate']):
-                    # First ensure the drive is indexed
-                    if not self.drive.semantic_index.documents:
-                        print("Indexing drive contents for semantic search...")
-                        await self.drive.index_drive()
-                    return await self.drive.semantic_search(query_text, confirm_intent=True)
-                else:
-                    return await self.drive.search_files(query_text)
+                result = await self.drive.search_files(**drive_command.parameters)
+            
+            # If result is already a JSON string, return it directly
+            if isinstance(result, str):
+                try:
+                    # Verify it's valid JSON
+                    json.loads(result)
+                    return result
+                except json.JSONDecodeError:
+                    # If not valid JSON, wrap it in a JSON object
+                    return json.dumps({"result": result})
+            
+            # If result is a dict or other object, convert to JSON
+            return json.dumps(result)
                 
         except Exception as e:
             logger.error(f"Error executing command: {str(e)}", exc_info=True)
@@ -1024,74 +780,3 @@ Available commands:
 7. Search files: "search for: <query>"
         """
         return help_text
-
-async def main():
-    """Run basic tests for the Drive Agent functionality."""
-    print("Initializing Drive Agent...")
-    # Use OAuth authentication instead of service account
-    agent = DriveAgent(
-        auth_method='oauth',
-        credentials_path='credentials.json',
-        token_path='token.json'
-    )
-    
-    try:
-        # # Test 1: List files
-        # print("\nTest 1: Listing files")
-        # result = await agent.execute_command("list files")
-        # print(f"List files result: {result[:200]}...")  # Print first 200 chars
-        
-        # # Test 2: Create a test folder
-        # print("\nTest 2: Creating test folder")
-        # result = await agent.execute_command("create folder named: TestFolder")
-        # folder_data = json.loads(result)
-        # test_folder_id = folder_data.get('id')
-        # print(f"Created folder: {result}")
-        
-        # # Test 3: Upload a test file (if exists)
-        # test_file = "test.txt"
-        # if os.path.exists(test_file):
-        #     print(f"\nTest 3: Uploading {test_file}")
-        #     result = await agent.execute_command(f"upload file from: {test_file}")
-        #     print(f"Upload result: {result}")
-        
-        # # Test 4: Search files
-        # print("\nTest 4: Searching files")
-        # result = await agent.execute_command("search for: test.txt")
-        # print(f"Search result: {result[:200]}...")
-        
-        # Test 5: Semantic search
-        print("\nTest 5: Semantic search")
-        # First index the drive
-        print("Indexing drive contents...")
-        await agent.drive.index_drive()
-        
-        # Then perform semantic search
-        result = await agent.execute_command("find documents about testing")
-        print(f"Semantic search result: {result[:200]}...")
-        
-        # # Test 6: Parallel operations
-        # print("\nTest 6: Parallel operations")
-        # commands = [
-        #     "list files",
-        #     "search for: test",
-        #     "create folder named: ParallelTest"
-        # ]
-        # results = await agent.execute_commands(commands)
-        # for cmd, result in zip(commands, results):
-        #     print(f"\nCommand: {cmd}")
-        #     print(f"Result: {result[:200]}...")
-        
-        # # Cleanup: Delete test folders
-        # if test_folder_id:
-        #     print("\nCleaning up test folders...")
-        #     result = await agent.execute_command(f"delete file id: {test_folder_id}")
-        #     print(f"Cleanup result: {result}")
-            
-    except Exception as e:
-        print(f"\nError during tests: {str(e)}")
-        raise
-
-if __name__ == "__main__":
-    # Run the async main function
-    asyncio.run(main())

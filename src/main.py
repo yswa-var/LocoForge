@@ -13,6 +13,7 @@ from logger import default_logger as logger
 from llm_router import task_creation_agent, execute_task
 from sql_agent import SQLAgent
 from nosql_agent import GeneralizedNoSQLAgent, MongoJSONEncoder
+from google_drive_ops import DriveAgent
 
 # Load environment variables
 load_dotenv()
@@ -37,6 +38,7 @@ class GraphState(TypedDict):
     task_spec: Dict[str, Any]
     results: Dict[str, Any]
     error: str | None
+    drive_agent: DriveAgent | None  # Add DriveAgent to state
 
 # Node for task creation
 def create_task_node(state: GraphState) -> GraphState:
@@ -54,18 +56,20 @@ def create_task_node(state: GraphState) -> GraphState:
             "messages": state["messages"],
             "task_spec": task_spec,
             "results": {},
-            "error": None
+            "error": None,
+            "drive_agent": state.get("drive_agent")
         }
     except Exception as e:
         return {
             "messages": state["messages"],
             "task_spec": {},
             "results": {},
-            "error": str(e)
+            "error": str(e),
+            "drive_agent": state.get("drive_agent")
         }
 
 # Node for task execution
-def execute_task_node(state: GraphState) -> GraphState:
+async def execute_task_node(state: GraphState) -> GraphState:
     """Execute the task using the appropriate agent(s)."""
     try:
         if state["error"]:
@@ -75,8 +79,12 @@ def execute_task_node(state: GraphState) -> GraphState:
         sql_agent = SQLAgent("sales.db")
         nosql_agent = GeneralizedNoSQLAgent()
         
+        # Initialize DriveAgent if not already present
+        if not state.get("drive_agent"):
+            state["drive_agent"] = DriveAgent(auth_method='oauth')
+        
         # Execute task
-        results = execute_task(state["task_spec"], sql_agent, nosql_agent)
+        results = await execute_task(state["task_spec"], sql_agent, nosql_agent, state["drive_agent"])
         
         # Create structured response
         response_data = {
@@ -119,7 +127,8 @@ def execute_task_node(state: GraphState) -> GraphState:
             "messages": state["messages"] + [response],
             "task_spec": state["task_spec"],
             "results": response_data,
-            "error": None
+            "error": None,
+            "drive_agent": state["drive_agent"]
         }
     except Exception as e:
         logger.error(f"Error in execute_task_node: {str(e)}", exc_info=True)
@@ -132,7 +141,8 @@ def execute_task_node(state: GraphState) -> GraphState:
             "messages": state["messages"] + [AIMessage(content=json.dumps(error_response, indent=2, cls=CustomJSONEncoder))],
             "task_spec": state["task_spec"],
             "results": error_response,
-            "error": str(e)
+            "error": str(e),
+            "drive_agent": state.get("drive_agent")
         }
     finally:
         if 'sql_agent' in locals():
@@ -149,7 +159,8 @@ def error_handler_node(state: GraphState) -> GraphState:
             "messages": state["messages"] + [error_message],
             "task_spec": state["task_spec"],
             "results": state["results"],
-            "error": None
+            "error": None,
+            "drive_agent": state.get("drive_agent")
         }
     return state
 
@@ -178,7 +189,7 @@ def create_graph() -> Graph:
     
     return compiled_graph
 
-def main():
+async def main():
     """Main function to demonstrate the workflow."""
     # Create the graph
     graph = create_graph()
@@ -194,7 +205,12 @@ def main():
         "List all products with inventory below 100 units",
         
         # Combined queries (Both)
-        "Find all users who made purchases above $1000 and their purchase history"
+        "Find all users who made purchases above $1000 and their purchase history",
+        
+        # Google Drive queries
+        "List all files in my Google Drive",
+        "Search for documents containing 'project proposal'",
+        "Create a new folder named 'Project Documents'"
     ]
     
     # Process each query
@@ -208,11 +224,12 @@ def main():
             "messages": [HumanMessage(content=query)],
             "task_spec": {},
             "results": {},
-            "error": None
+            "error": None,
+            "drive_agent": None  # Initialize drive_agent as None
         }
         
         # Run the graph
-        result = graph.invoke(initial_state)
+        result = await graph.ainvoke(initial_state)
         
         # Print the results
         print("\nFinal messages:")
@@ -220,4 +237,5 @@ def main():
             print(f"\n{message.type}: {message.content}")
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())

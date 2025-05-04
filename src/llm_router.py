@@ -1,7 +1,9 @@
 from typing import Dict, Any, List, Optional, Union
 from sql_agent import SQLAgent
 from nosql_agent import GeneralizedNoSQLAgent, MongoJSONEncoder
+from google_drive_ops import DriveAgent
 from llm_config import llm
+from llm_utils import process_message
 from logger import default_logger as logger
 import json
 
@@ -47,7 +49,7 @@ def task_creation_agent(objective: str) -> Dict[str, Any]:
     system_prompt = """You are a task creation agent that converts natural language objectives into structured task specifications.
     Your response must be a valid JSON object with the following structure:
     {
-        "agent_type": "sql" | "nosql" | "both",
+        "agent_type": "sql" | "nosql" | "drive" | "both",
         "task_type": "query" | "update" | "delete" | "insert",
         "prompt": "The original user objective"
     }
@@ -56,12 +58,13 @@ def task_creation_agent(objective: str) -> Dict[str, Any]:
     1. Choose the appropriate agent_type based on the task:
        - Use "sql" for structured data queries and operations
        - Use "nosql" for document-based or unstructured data
-       - Use "both" when the task requires both types of databases
+       - Use "drive" for Google Drive operations
+       - Use "both" when the task requires multiple types of databases
     2. Choose the appropriate task_type based on the operation:
-       - "query" for SELECT or FIND operations
+       - "query" for SELECT, FIND, or LIST operations
        - "update" for UPDATE or MODIFY operations
        - "delete" for DELETE or REMOVE operations
-       - "insert" for INSERT or CREATE operations
+       - "insert" for INSERT, CREATE, or UPLOAD operations
     3. Keep the prompt as close to the original objective as possible
     4. Ensure the response is valid JSON
     """
@@ -86,7 +89,7 @@ def task_creation_agent(objective: str) -> Dict[str, Any]:
                 raise ValueError(f"Missing required fields in task specification: {missing_fields}")
             
             # Validate agent_type
-            valid_agent_types = ["sql", "nosql", "both"]
+            valid_agent_types = ["sql", "nosql", "drive", "both"]
             if task_spec["agent_type"] not in valid_agent_types:
                 raise ValueError(f"Invalid agent_type: {task_spec['agent_type']}. Must be one of {valid_agent_types}")
             
@@ -105,7 +108,9 @@ def task_creation_agent(objective: str) -> Dict[str, Any]:
                 "Please rephrase your request in a clearer way. For example:\n"
                 "- 'Show me all products with low inventory'\n"
                 "- 'Find users who made recent purchases'\n"
-                "- 'Update the price of product X'"
+                "- 'Update the price of product X'\n"
+                "- 'List files in my Google Drive'\n"
+                "- 'Create a new folder in Google Drive'"
             )
     except Exception as e:
         logger.error(f"Unexpected error in task creation: {str(e)}", exc_info=True)
@@ -114,7 +119,9 @@ def task_creation_agent(objective: str) -> Dict[str, Any]:
             "Please try again. If the problem persists, contact support."
         )
 
-def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] = None, nosql_agent: Optional[GeneralizedNoSQLAgent] = None) -> Dict[str, Any]:
+async def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] = None, 
+                nosql_agent: Optional[GeneralizedNoSQLAgent] = None,
+                drive_agent: Optional[DriveAgent] = None) -> Dict[str, Any]:
     """
     Execute a task using the specified agent(s).
     
@@ -122,6 +129,7 @@ def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] = None
         task_spec (Dict[str, Any]): The task specification from task_creation_agent
         sql_agent (Optional[SQLAgent]): The SQL agent instance
         nosql_agent (Optional[GeneralizedNoSQLAgent]): The NoSQL agent instance
+        drive_agent (Optional[DriveAgent]): The Google Drive agent instance
         
     Returns:
         Dict[str, Any]: Results from the executed task(s)
@@ -164,10 +172,19 @@ def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] = None
                     )
             
             results["nosql"] = nosql_agent.execute_query(task_spec["prompt"])
+            
+        if agent_type in ["drive", "both"]:
+            if not drive_agent:
+                raise DatabaseError(
+                    "Google Drive not available",
+                    "Please ensure Google Drive is properly configured and try again."
+                )
+            logger.info("Executing Google Drive agent task")
+            results["drive"] = await drive_agent.execute_command(task_spec["prompt"])
         
         # Check for errors in results
         for agent, result in results.items():
-            if result.get("status") == "error":
+            if isinstance(result, dict) and result.get("status") == "error":
                 error_msg = result.get("error", result.get("message", "Unknown error"))
                 if "syntax error" in error_msg.lower():
                     raise DatabaseError(
@@ -198,42 +215,40 @@ def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] = None
         logger.error(f"Database error: {str(e)}", exc_info=True)
         return format_error_response(e, e.guidance)
     except Exception as e:
-        logger.error(f"Unexpected error during task execution: {str(e)}", exc_info=True)
-        return format_error_response(
-            e,
-            "An unexpected error occurred. Please try again or contact support if the problem persists."
-        )
+        logger.error(f"Unexpected error in task execution: {str(e)}", exc_info=True)
+        return format_error_response(e)
 
-def main():
-    """Example usage of the task router."""
-    logger.info("Starting LLM router example")
-    
+async def main():
+    """Main function to demonstrate the workflow."""
     # Example objectives
     objectives = [
-        # User-related queries (NoSQL)
-        "Find all users who logged in within the last 24 hours",
-        "Update the role of user 'john.doe@example.com' to 'admin'",
-        "Get the activity log for user ID '12345'",
-        
-        # Business-related queries (SQL)
+        # SQL queries
         "Show me total sales for the last quarter",
         "List all products with inventory below 100 units",
-        "Calculate the average order value by customer",
         
-        # Combined queries (Both)
+        # NoSQL queries
+        "Find all users who logged in within the last 24 hours",
+        "Update the role of user 'john.doe@example.com' to 'admin'",
+        
+        # Combined queries
         "Find all users who made purchases above $1000 and their purchase history",
-        "Get user feedback for products with low inventory"
+        "Get user feedback for products with low inventory",
+        
+        # Google Drive operations
+        "List files in my Google Drive",
+        "Create a new folder in Google Drive"
     ]
     
     try:
-        # Initialize agents (in a real application, these would be properly configured)
-        logger.info("Initializing database agents")
+        # Initialize agents
         sql_agent = SQLAgent("sales.db")
         nosql_agent = GeneralizedNoSQLAgent()
+        drive_agent = DriveAgent()
         
         for objective in objectives:
-            logger.info(f"Processing objective: {objective}")
-            print(f"\nProcessing objective: {objective}")
+            print(f"\n{'='*50}")
+            print(f"Processing objective: {objective}")
+            print(f"{'='*50}")
             
             try:
                 # Create task specification
@@ -242,27 +257,24 @@ def main():
                 print(json.dumps(task_spec, indent=2))
                 
                 # Execute task
-                result = execute_task(task_spec, sql_agent, nosql_agent)
+                result = await execute_task(task_spec, sql_agent, nosql_agent, drive_agent)
                 print("\nExecution Results:")
                 print(json.dumps(result, indent=2))
                 
-            except DatabaseError as e:
-                print(f"\nError: {e.message}")
-                print(f"Guidance: {e.guidance}")
             except Exception as e:
-                print(f"\nUnexpected error: {str(e)}")
-                print("Please try again or contact support if the problem persists.")
+                print(f"\nError processing objective: {str(e)}")
+                continue
                 
-    except Exception as e:
-        logger.error(f"An error occurred in main: {str(e)}", exc_info=True)
-        print(f"An error occurred: {str(e)}")
     finally:
-        logger.info("Closing database connections")
+        # Cleanup
         if 'sql_agent' in locals():
             sql_agent.close()
         if 'nosql_agent' in locals():
             nosql_agent.close()
+        if 'drive_agent' in locals():
+            await drive_agent.close()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
 
