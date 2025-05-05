@@ -970,6 +970,11 @@ Available commands:
     
     async def close(self):
         """Clean up resources used by DriveAgent."""
-        if hasattr(self.drive, 'executor'):
-            self.drive.executor.shutdown(wait=True)
-        logger.info("DriveAgent resources have been released")
+        if hasattr(self.drive, 'executor') and not self.drive.executor._shutdown:
+            self.drive.executor.shutdown(wait=False)
+            logger.info("DriveAgent resources have been released")
+        
+        # Reset the executor to allow future operations
+        if hasattr(self.drive, 'executor') and self.drive.executor._shutdown:
+            self.drive.executor = ThreadPoolExecutor(max_workers=10)
+            logger.info("DriveAgent executor has been reset")

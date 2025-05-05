@@ -757,3 +757,157 @@ Examples:
         """Close the MongoDB connection."""
         logger.info("Closing MongoDB connection")
         self.client.close()
+        
+    # Add this at the end of the file
+
+# Add this function before the existing if __name__ == "__main__": block
+
+def main():
+    """Main function to demonstrate the NoSQL agent usage."""
+    print("📊 NoSQL Agent Demo")
+    print("===================")
+    
+    try:
+        # Initialize the agent
+        agent = GeneralizedNoSQLAgent()
+        print("✅ Connected to MongoDB successfully!")
+        
+        # List databases
+        print("\n1. Listing all databases:")
+        dbs = agent.list_databases()
+        for db in dbs:
+            print(f"  - {db}")
+        
+        # Use a test database
+        test_db = "test_db"
+        print(f"\n2. Switching to database: {test_db}")
+        agent.use_database(test_db)
+        
+        # Create a test collection if needed
+        test_collection = "test_collection"
+        print(f"\n3. Creating collection: {test_collection}")
+        agent.create_collection(test_collection)
+        
+        # Insert test data
+        print("\n4. Inserting test data:")
+        insert_result = agent.execute_query(
+            f"Insert a document in {test_collection} with name='Test User', email='test@example.com', and age=30"
+        )
+        print(json.dumps(insert_result, indent=2, cls=MongoJSONEncoder))
+        
+        # Find the documents
+        print("\n5. Querying the collection:")
+        query_result = agent.execute_query(
+            f"Find all documents in {test_collection}"
+        )
+        print(json.dumps(query_result, indent=2, cls=MongoJSONEncoder))
+        
+        # Get schema information
+        print("\n6. Getting collection schema:")
+        try:
+            schema = agent.get_collection_schema(test_collection)
+            print(json.dumps(schema, indent=2))
+        except Exception as e:
+            print(f"Error getting schema: {str(e)}")
+        
+        # Update a document
+        print("\n7. Updating a document:")
+        update_result = agent.execute_query(
+            f"Update the document in {test_collection} where name='Test User' to set status='active'"
+        )
+        print(json.dumps(update_result, indent=2, cls=MongoJSONEncoder))
+        
+        # Verify the update
+        print("\n8. Verifying the update:")
+        verify_result = agent.execute_query(
+            f"Find all documents in {test_collection} where status='active'"
+        )
+        print(json.dumps(verify_result, indent=2, cls=MongoJSONEncoder))
+        
+    except ValueError as ve:
+        if "Could not connect to MongoDB server" in str(ve):
+            print("❌ MongoDB Connection Error")
+            print("MongoDB is not running. Starting MongoDB mock mode...")
+            
+            # Demo with mock data
+            print("\n🔸 Mock Database Demo (since MongoDB is not available)")
+            print("Imagine we have these collections in our database:")
+            mock_collections = ["users", "products", "orders"]
+            for collection in mock_collections:
+                print(f"  - {collection}")
+            
+            print("\nMock data in 'users' collection:")
+            mock_data = [
+                {"_id": "60d21b4667d0d8992e810c85", "name": "John Doe", "email": "john@example.com", "age": 30, "status": "active"},
+                {"_id": "60d21b4667d0d8992e810c86", "name": "Jane Smith", "email": "jane@example.com", "age": 28, "status": "inactive"},
+                {"_id": "60d21b4667d0d8992e810c87", "name": "Bob Johnson", "email": "bob@example.com", "age": 35, "status": "active"}
+            ]
+            print(json.dumps(mock_data, indent=2))
+            
+            print("\n💡 To use real MongoDB functionality:")
+            print("  1. Install MongoDB if not installed:")
+            print("     $ sudo apt install mongodb")
+            print("  2. Start the MongoDB service:")
+            print("     $ sudo systemctl start mongodb")
+            print("  3. Verify it's running:")
+            print("     $ sudo systemctl status mongodb")
+        else:
+            print(f"❌ Error: {str(ve)}")
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+    finally:
+        # Clean up if we successfully connected
+        if 'agent' in locals() and hasattr(agent, 'client'):
+            try:
+                agent.close()
+                print("\n✅ MongoDB connection closed")
+            except:
+                pass
+    
+    print("\nDemo completed!")
+
+# Keep the existing interactive test utility code
+if __name__ == "__main__":
+    # You can choose which mode to run based on your needs
+    run_mode = "demo"  # or "interactive"
+    
+    if run_mode == "demo":
+        main()
+    else:
+        print("🔄 NoSQL Agent Test Utility")
+        print("----------------------------")
+        
+        try:
+            # existing interactive code...
+            # Try to initialize the agent with a short timeout
+            agent = GeneralizedNoSQLAgent(connection_string="mongodb://localhost:27017/", 
+                                        database_name="test_db")
+            print("✅ Connected to MongoDB successfully!")
+            
+            # Show available databases
+            print("\n📚 Available databases:")
+            dbs = agent.list_databases()
+            for db in dbs:
+                print(f"  - {db}")
+                
+            # Example operation
+            print("\n🔍 Enter a query to test (or press Enter to exit):")
+            query = input("> ")
+            
+            if query:
+                print("\nProcessing query...")
+                result = agent.execute_query(query)
+                print("\nResult:")
+                print(json.dumps(result, indent=2, cls=MongoJSONEncoder))
+            
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            print("\n💡 Troubleshooting:")
+            print("  1. Make sure MongoDB is running:")
+            print("     $ sudo systemctl start mongodb")
+            print("  2. Check MongoDB status:")
+            print("     $ sudo systemctl status mongodb")
+            print("  3. If needed, install MongoDB:")
+            print("     $ sudo apt install mongodb")
+        
+        print("\nDone!")

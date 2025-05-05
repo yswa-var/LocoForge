@@ -1,3 +1,4 @@
+
 import os
 import sqlite3
 from typing import Any, Dict
@@ -28,43 +29,11 @@ class SQLiteExecutor:
         return "SELECT * FROM ohlc"
     
     def _ensure_connection(self):
-        """Ensure database connection is established.
-        
-        Returns:
-            sqlite3.Connection: Active database connection
-            
-        Raises:
-            FileNotFoundError: If database file doesn't exist
-            ConnectionError: If connection fails
-        """
-        try:
-            if not self.sqlite_conn or not hasattr(self.sqlite_conn, 'cursor'):
-                if not os.path.exists(self.sqlite_db_path):
-                    raise FileNotFoundError(f"SQLite database {self.sqlite_db_path} does not exist. Run db_ops.py first")
-                    
-                self.sqlite_conn = sqlite3.connect(self.sqlite_db_path)
-                # Enable foreign key support
-                self.sqlite_conn.execute("PRAGMA foreign_keys = ON")
-                # Use Row factory for better column access
-                self.sqlite_conn.row_factory = sqlite3.Row
-                
-            return self.sqlite_conn
-        except sqlite3.Error as e:
-            raise ConnectionError(f"Failed to connect to SQLite database: {str(e)}")
-    
-    def _validate_table_name(self, table_name: str) -> bool:
-        """Validate table name to prevent SQL injection.
-        
-        Args:
-            table_name: The table name to validate
-            
-        Returns:
-            bool: True if table exists, False otherwise
-        """
-        conn = self._ensure_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
-        return cursor.fetchone() is not None
+        if not self.sqlite_conn or not hasattr(self.sqlite_conn, 'cursor'):
+            if not os.path.exists(self.sqlite_db_path):
+                raise FileNotFoundError(f"SQLite database {self.sqlite_db_path} does not exist. Run db_ops.py first")
+            self.sqlite_conn = sqlite3.connect(self.sqlite_db_path)
+        return self.sqlite_conn
     
     def select(self, query: str) -> Dict[str, Any]:
         """Execute a SELECT query on the SQLite database.
@@ -128,12 +97,11 @@ class SQLiteExecutor:
             return {"success": False, "error": f"Error updating SQLite: {str(e)}"}
     
     
-    def delete(self, table: str, condition: str) -> Dict[str, Any]:
+    def delete(self, query: str, table: str) -> Dict[str, Any]:
         """Delete records from the SQLite database.
         
         Args:
-            table: Table name to delete from
-            condition: WHERE clause condition (without 'WHERE' keyword)
+            query: SQL DELETE query string 
         
         Returns:
             Dictionary with operation result and metadata
@@ -142,10 +110,6 @@ class SQLiteExecutor:
             conn = self._ensure_connection()
             cursor = conn.cursor()
             
-            if not self._validate_table_name(table):
-                return {"success": False, "error": f"Invalid table name: {table}"}
-                
-            query = f"DELETE FROM {table} WHERE {condition}"
             cursor.execute(query)
             conn.commit()
             
@@ -157,38 +121,9 @@ class SQLiteExecutor:
             }
         except Exception as e:
             return {"success": False, "error": f"Error deleting from SQLite: {str(e)}"}
-        
-    def list_tables(self) -> Dict[str, Any]:
-        """List all tables in the database.
-        
-        Returns:
-            Dictionary with list of tables
-        """
-        try:
-            conn = self._ensure_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-            tables = [row[0] for row in cursor.fetchall()]
-            
-            return {
-                "success": True,
-                "tables": tables,
-                "count": len(tables)
-            }
-        except Exception as e:
-            return {"success": False, "error": f"Error listing tables: {str(e)}"}
     
     def close(self):
         if self.sqlite_conn:
             self.sqlite_conn.close()
             self.sqlite_conn = None
-            
-    def __enter__(self):
-        """Support for context manager usage."""
-        self._ensure_connection()
-        return self
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Close resources when exiting context manager."""
-        self.close()
+

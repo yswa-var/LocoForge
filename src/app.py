@@ -5,7 +5,7 @@ import pandas as pd
 import json
 from datetime import datetime
 import asyncio
-
+import nest_asyncio
 # Set page config first
 st.set_page_config(
     page_title="LocoForge - Multi-Agent Assistant",
@@ -177,7 +177,16 @@ if prompt := st.chat_input("What would you like me to help you with?"):
     with st.chat_message("assistant"):
         with st.spinner("Processing your request..."):
             # Run the graph
-            result = asyncio.run(process_message(prompt, graph, initial_state))
+            # result = asyncio.run(process_message(prompt, graph, initial_state))
+            nest_asyncio.apply()
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            result = loop.run_until_complete(process_message(prompt, graph, initial_state))
+            
             
             # Update drive_agent in session state
             if "drive_agent" in result:
