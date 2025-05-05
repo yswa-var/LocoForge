@@ -1232,3 +1232,29 @@ llm_router.DatabaseError: Invalid query syntax in sql database
 2025-05-05 19:56:42,018 - locoforge - INFO - Closing database connection
 2025-05-05 19:56:42,018 - nosql_agent - INFO - Closing MongoDB connection
 2025-05-05 19:56:42,022 - locoforge - INFO - Drive agent resources cleaned up
+2025-05-05 20:06:23,382 - locoforge - INFO - Successfully created task specification: {
+  "agent_type": "both",
+  "task_type": "query",
+  "prompt": "List all the tables we have in both the SQL and NoSQL databases."
+}
+2025-05-05 20:06:23,383 - locoforge - INFO - Initializing SQLAgent with database: sales.db
+2025-05-05 20:06:23,385 - nosql_agent - INFO - Initializing Generalized NoSQL agent with connection string: mongodb://localhost:27017/
+2025-05-05 20:06:23,396 - nosql_agent - INFO - Switching to database: user_management_db
+2025-05-05 20:06:23,400 - nosql_agent - INFO - Generalized NoSQL agent initialized successfully
+2025-05-05 20:06:23,804 - locoforge - INFO - Executing task with specification: {
+  "agent_type": "both",
+  "task_type": "query",
+  "prompt": "List all the tables we have in both the SQL and NoSQL databases."
+}
+2025-05-05 20:06:23,804 - locoforge - INFO - Executing SQL agent task
+2025-05-05 20:06:23,805 - locoforge - INFO - Executing query for prompt: List all the tables we have in both the SQL and NoSQL databases.
+2025-05-05 20:06:24,513 - locoforge - INFO - Query executed successfully. Retrieved 6 rows
+2025-05-05 20:06:24,513 - locoforge - INFO - Executing NoSQL agent task
+2025-05-05 20:06:24,513 - nosql_agent - INFO - Executing query for prompt: List all the tables we have in both the SQL and NoSQL databases.
+2025-05-05 20:06:24,513 - nosql_agent - INFO - Generating MongoDB query for prompt: List all the tables we have in both the SQL and NoSQL databases.
+2025-05-05 20:06:25,314 - nosql_agent - INFO - Listing collections in database: user_management_db
+2025-05-05 20:06:25,317 - locoforge - INFO - Executing Google Drive agent task
+2025-05-05 20:06:26,251 - locoforge - INFO - Task execution completed successfully
+2025-05-05 20:06:26,257 - locoforge - INFO - Closing database connection
+2025-05-05 20:06:26,257 - nosql_agent - INFO - Closing MongoDB connection
+2025-05-05 20:06:26,262 - locoforge - INFO - Drive agent resources cleaned up

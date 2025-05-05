@@ -20,3 +20,4 @@ sentence-transformers
 PyPDF2 
 python-docx 
 pandas
+nest_asyncio
