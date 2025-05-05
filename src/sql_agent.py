@@ -96,7 +96,7 @@ def main():
     """Main function to demonstrate the SQL agent usage."""
     try:
         # Initialize the agent
-        agent = SQLAgent("/Users/yash/Downloads/exercises/LocoForge/sales.db")
+        agent = SQLAgent("/home/aditya/ML/work/LocoForge/sales.db")
         
         # Example queries
         logger.info("Executing example queries")

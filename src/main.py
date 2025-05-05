@@ -6,6 +6,7 @@ from langchain_openai import ChatOpenAI
 import os
 from dotenv import load_dotenv
 import json
+import asyncio
 import pandas as pd
 from datetime import datetime
 from logger import default_logger as logger
