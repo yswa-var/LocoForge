@@ -3,7 +3,7 @@ from sql_agent import SQLAgent
 from nosql_agent import GeneralizedNoSQLAgent, MongoJSONEncoder
 from google_drive_ops import DriveAgent
 from llm_config import llm
-from llm_utils import process_message
+# from llm_utils import process_message //It is already defined inside the file 
 from logger import default_logger as logger
 import json
 
@@ -180,10 +180,25 @@ async def execute_task(task_spec: Dict[str, Any], sql_agent: Optional[SQLAgent] 
                     "Please ensure Google Drive is properly configured and try again."
                 )
             logger.info("Executing Google Drive agent task")
-            results["drive"] = await drive_agent.execute_command(task_spec["prompt"])
-        
+            drive_result = await drive_agent.execute_command(task_spec["prompt"])
+            
+            # Parse JSON if needed
+            if isinstance(drive_result, str):
+                try:
+                    results["drive"] = json.loads(drive_result)
+                except json.JSONDecodeError:
+                    results["drive"] = {"result": drive_result}
+            else:
+                results["drive"] = drive_result
         # Check for errors in results
         for agent, result in results.items():
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                    results[agent] = result  # Replace with parsed JSON
+                except json.JSONDecodeError:
+                    # Not JSON, keep as is
+                    continue
             if isinstance(result, dict) and result.get("status") == "error":
                 error_msg = result.get("error", result.get("message", "Unknown error"))
                 if "syntax error" in error_msg.lower():

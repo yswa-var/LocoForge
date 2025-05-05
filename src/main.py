@@ -149,12 +149,30 @@ async def execute_task_node(state: GraphState) -> GraphState:
             sql_agent.close()
         if 'nosql_agent' in locals():
             nosql_agent.close()
+        #drive_agent cleanup 
+        if state.get("drive_agent") and "drive" in state["task_spec"].get("agent_type", ""):
+            asyncio.create_task(state["drive_agent"].close())
 
 # Node for error handling
 def error_handler_node(state: GraphState) -> GraphState:
     """Handle any errors that occurred during task creation or execution."""
     if state["error"]:
-        error_message = AIMessage(content=f"An error occurred: {state['error']}")
+        error_parts = state["error"].split(":")
+        if len(error_parts) > 1:
+            error_type = error_parts[0].strip()
+            error_detail = ":".join(error_parts[1:]).strip()
+        else:
+            error_type = "Error"
+            error_detail = state["error"]
+            
+        error_response = {
+            "status": "error",
+            "error_type": error_type,
+            "error_detail": error_detail,
+            "suggestions": ["Try rephrasing your request", "Be more specific", "Check your input data"]
+        }
+            
+        error_message = AIMessage(content=json.dumps(error_response, indent=2))
         return {
             "messages": state["messages"] + [error_message],
             "task_spec": state["task_spec"],
@@ -162,6 +180,17 @@ def error_handler_node(state: GraphState) -> GraphState:
             "error": None,
             "drive_agent": state.get("drive_agent")
         }
+    return state
+
+#For cleaning up resources before finishing
+async def cleanup_resources_node(state: GraphState) -> GraphState:
+    """Clean up resources before finishing."""
+    if state.get("drive_agent"):
+        try:
+            await state["drive_agent"].close()
+            logger.info("Drive agent resources cleaned up")
+        except Exception as e:
+            logger.error(f"Error cleaning up drive agent: {str(e)}")
     return state
 
 # Create the graph
@@ -173,16 +202,18 @@ def create_graph() -> Graph:
     workflow.add_node("create_task", create_task_node)
     workflow.add_node("execute_task", execute_task_node)
     workflow.add_node("error_handler", error_handler_node)
+    workflow.add_node("cleanup_resources", cleanup_resources_node)
     
     # Define edges
     workflow.add_edge("create_task", "execute_task")
     workflow.add_edge("execute_task", "error_handler")
+    workflow.add_edge("error_handler", "cleanup_resources")
     
     # Set the entry point
     workflow.set_entry_point("create_task")
     
     # Set the exit point
-    workflow.set_finish_point("error_handler")
+    workflow.set_finish_point("cleanup_resources")
     
     # Compile the graph
     compiled_graph = workflow.compile()

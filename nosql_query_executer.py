@@ -5,22 +5,43 @@ from datetime import datetime, timedelta
 import uuid
 import hashlib
 from src.logger import setup_logger
+import os
 
 # Initialize logger
 logger = setup_logger('nosql_query_executer')
 
 # Initialize MongoDB client
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["user_management_db"]
+try:
+    client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=5000)
+    # Force a connection to verify it works
+    client.server_info()
+    db = client["user_management_db"]
+    logger.info("Successfully connected to MongoDB")
+except pymongo.errors.ServerSelectionTimeoutError as e:
+    logger.error(f"Could not connect to MongoDB server: {str(e)}")
+    logger.error("Is MongoDB running on localhost:27017?")
+    exit(1)
 
 # Initialize Faker
 fake = Faker()
 
 # Clear existing collections
-db.users.drop()
-db.roles.drop()
-db.activity_logs.drop()
-
+if os.environ.get('MONGODB_ENV') == 'development' or os.environ.get('ALLOW_DROP_COLLECTIONS') == 'true':
+    logger.info("Dropping existing collections...")
+    db.users.drop()
+    db.roles.drop()
+    db.activity_logs.drop()
+else:
+    logger.warning("Collection dropping disabled for safety. Set ALLOW_DROP_COLLECTIONS=true to enable.")
+    user_input = input("Do you want to continue and drop collections? (y/N): ")
+    if user_input.lower() == 'y':
+        db.users.drop()
+        db.roles.drop()
+        db.activity_logs.drop()
+        logger.info("Collections dropped based on user confirmation.")
+    else:
+        logger.info("Keeping existing collections.")
+        
 # Create collections
 users_collection = db["users"]
 roles_collection = db["roles"]
@@ -139,10 +160,13 @@ def generate_users(roles, num_users=100):
         }
         users.append(user)
     
-    if users:
-        users_collection.insert_many(users)
-        logger.info(f"Inserted {len(users)} users")
-    
+    # Insert users in batches of 25 for better performance
+    batch_size = 25
+    for i in range(0, len(users), batch_size):
+        batch = users[i:i+batch_size]
+        if batch:
+            users_collection.insert_many(batch)
+            logger.info(f"Inserted batch of {len(batch)} users ({i+len(batch)}/{len(users)})")
     return users
 
 def generate_activity_logs(users, num_logs=500):

@@ -28,13 +28,21 @@ class GeneralizedNoSQLAgent:
             database_name (str): Name of the database to connect to (defaults to user_management_db)
         """
         logger.info(f"Initializing Generalized NoSQL agent with connection string: {connection_string}")
-        self.client = pymongo.MongoClient(connection_string)
-        self.current_db = None
-        
-        # Connect to user_management_db by default
-        self.use_database(database_name)
-        logger.info("Generalized NoSQL agent initialized successfully")
-    
+        try:
+            self.client = pymongo.MongoClient(connection_string, serverSelectionTimeoutMS=5000)
+            # Verify connection works by accessing server info
+            self.client.server_info()
+            self.current_db = None
+            
+            # Connect to user_management_db by default
+            self.use_database(database_name)
+            logger.info("Generalized NoSQL agent initialized successfully")
+        except pymongo.errors.ServerSelectionTimeoutError as e:
+            logger.error(f"Failed to connect to MongoDB: {str(e)}")
+            raise ValueError(f"Could not connect to MongoDB server: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error initializing MongoDB connection: {str(e)}")
+            raise
     def list_databases(self) -> List[str]:
         """
         List all available databases.
@@ -378,11 +386,15 @@ Examples:
                 elif isinstance(obj, list):
                     return [convert_dates(item) for item in obj]
                 elif isinstance(obj, str):
-                    try:
-                        # Try to parse as ISO format date
-                        return datetime.fromisoformat(obj.replace('Z', '+00:00'))
-                    except ValueError:
-                        return obj
+                    # Only try to convert strings that look like dates (has T separator and proper length)
+                    if ('T' in obj and len(obj) >= 19 and 
+                        (obj.endswith('Z') or '+' in obj or '-' in obj[19:])):
+                        try:
+                            #Try to format as ISO date
+                            return datetime.fromisoformat(obj.replace('Z', '+00:00'))
+                        except ValueError:
+                            return obj
+                    return obj
                 return obj
             
             # Convert dates in the query specification
@@ -660,6 +672,17 @@ Examples:
         update_dict = query_spec["update"]
         upsert = query_spec.get("upsert", False)
         
+        #Check for empty filters
+        if not filter_dict:
+            return {
+                "status": "error",
+                "message": "Update filter cannot be empty. This could affect all documents!",
+                "query_spec": query_spec
+            }
+        
+        logger.debug(f"Executing update operation with filter: {filter_dict} and update: {update_dict}")
+    
+        
         logger.debug(f"Executing update operation with filter: {filter_dict} and update: {update_dict}")
         
         # Check if we want to update one or many
@@ -721,6 +744,14 @@ Examples:
                 "filter": filter_dict,
                 "deleted_count": result.deleted_count
             }
+            
+    def __enter__(self):
+        """Support for context manager usage with 'with' statement."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Close resources when exiting context manager."""
+        self.close()
     
     def close(self):
         """Close the MongoDB connection."""
