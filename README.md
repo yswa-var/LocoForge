@@ -1,6 +1,7 @@
 # Multi-Agent Database System with LangGraph
 
-A sophisticated multi-agent system built with LangGraph that provides natural language interface to interact with SQL, NoSQL (MongoDB), and Google Drive databases. The system uses an intelligent supervisor to route queries to the appropriate database agent based on the context and requirements.
+![Screenshot 2025-05-08 at 2 13 45 PM](https://github.com/user-attachments/assets/7dbc007a-092b-444f-9b51-abb19ed55225)
+
 
 ## Features
 
