@@ -1,3 +1,41 @@
+Metadata-Version: 2.4
+Name: agent
+Version: 0.0.1
+Summary: Starter template for making a new agent LangGraph.
+Author-email: William Fu-Hinthorn <13333726+hinthornw@users.noreply.github.com>
+License: MIT
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: langgraph>=0.2.6
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: pandas>=2.0.0
+Requires-Dist: yfinance>=0.2.36
+Requires-Dist: pymongo
+Requires-Dist: google-drive
+Requires-Dist: faker
+Requires-Dist: google-api-python-client>=2.0.0
+Requires-Dist: google-auth-httplib2>=0.1.0
+Requires-Dist: google-auth-oauthlib>=0.4.0
+Requires-Dist: db-sqlite3
+Requires-Dist: langchain>=0.1.0
+Requires-Dist: langchain-core
+Requires-Dist: langchain-openai>=0.0.2
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: streamlit>=1.32.0
+Requires-Dist: langgraph
+Requires-Dist: langchain-community
+Requires-Dist: langgraph-cli[inmem]
+Requires-Dist: faiss-cpu
+Requires-Dist: sentence-transformers
+Requires-Dist: PyPDF2
+Requires-Dist: python-docx
+Requires-Dist: nest_asyncio
+Provides-Extra: dev
+Requires-Dist: mypy>=1.11.1; extra == "dev"
+Requires-Dist: ruff>=0.6.1; extra == "dev"
+Dynamic: license-file
+
 # New LangGraph Project
 
 [![CI](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/langchain-ai/new-langgraph-project/actions/workflows/unit-tests.yml)
