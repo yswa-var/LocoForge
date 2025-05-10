@@ -13,4 +13,5 @@ src/agent/llm_config.py
 src/agent/logger.py
 src/agent/no_sql_agent.py
 src/agent/nodes.py
+src/agent/sql_agent.py
 src/agent/state.py
