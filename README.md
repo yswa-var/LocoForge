@@ -71,4 +71,4 @@ The graph takes user messages, sends them to OpenAI, and returns the AI's respon
 
 ## Deployment
 
-This application is configured for LangGraph Platform deployment using the `langgraph.json` configuration file. The structure follows the recommended patterns for LangGraph applications. 
+This application is configured for LangGraph Platform deployment using the `langgraph.json` configuration file. The structure follows the recommended patterns for LangGraph applications. # LocoForge2
