@@ -1,1 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment folders
 venv/
+.venv/
+env/
+.env/  # Note: This ignores the actual .env file. See below for alternatives.
+
+# If you want to ignore only the virtual environment and keep the .env file:
+# comment the above `.env/` line and use this instead:
+#.env           # Uncomment to ignore .env files only, not directories
+
+# VS Code settings
+.vscode/
+
+# macOS-specific
+.DS_Store
+
+# PyCharm-specific
+.idea/
+
+# Log files
+*.log
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Test cache
+.pytest_cache/
+
+# MyPy cache
+.mypy_cache/
+
+# Coverage reports
+htmlcov/
+coverage.xml
+*.cover
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
