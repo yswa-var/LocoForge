@@ -1,147 +1,74 @@
-# Multi-Agent Database System with LangGraph
+# Basic LangGraph Chat Application
 
-![Screenshot 2025-05-08 at 2 13 45 PM](https://github.com/user-attachments/assets/7dbc007a-092b-444f-9b51-abb19ed55225)
+A simple chat application built with LangGraph and OpenAI, following the LangGraph Platform deployment structure.
 
+## File Structure
 
-## Features
-
-- Natural language processing of database queries
-- Intelligent routing between SQL, NoSQL, and Google Drive operations
-- Schema-aware database operations
-- Comprehensive error handling and logging
-- Support for complex database operations
-- Extensible architecture for adding new agents
-
-## Prerequisites
-
-- Python 3.9+
-- MongoDB (for NoSQL operations)
-- SQLite (for SQL operations)
-- Google Drive API credentials (for Drive operations)
-- LangGraph Studio installed
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd langgraph_as
+```
+lgstudioSetup/
+├── my_agent/                    # All project code
+│   ├── utils/                   # Utilities for your graph
+│   │   ├── __init__.py
+│   │   ├── nodes.py            # Node functions for your graph
+│   │   └── state.py            # State definition of your graph
+│   ├── requirements.txt        # Package dependencies
+│   ├── __init__.py
+│   └── agent.py               # Code for constructing your graph
+├── .env                        # Environment variables
+├── langgraph.json             # Configuration file for LangGraph
+├── test_chat.py               # Test script
+└── README.md                  # This file
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+## Setup
 
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Set up environment variables:
-```bash
-cp .env.example .env
-```
-
-5. Configure your `.env` file with the following variables:
-```env
-# LLM Configuration
-OPENAI_API_KEY=your_openai_api_key
-# Google Drive Configuration
-GOOGLE_DRIVE_CREDENTIALS_FILE=path/to/credentials.json
-```
-
-## Setting up LangGraph Studio
-
-1. Install LangGraph Studio:
-```bash
-pip install langgraph-studio
-```
-
-2. Start LangGraph Studio:
-```bash
-langgraph-studio
-```
-
-3. Open your browser and navigate to `http://localhost:3000`
-
-4. Import the project:
-   - Click on "Import Project"
-   - Select the project directory
-   - The system will automatically detect the graph configuration
-
-## Using the System
-
-1. **Starting a New Session**:
-   - Click the "+" button in LangGraph Studio to start a new session
-   - The system will initialize with the supervisor node
-
-2. **Making Database Queries**:
-   - Type your natural language query in the input box
-   - The supervisor will analyze the query and route it to the appropriate agent
-   - Results will be displayed in the chat interface
-
-3. **Example Queries**:
-   ```
-   "Show me all users in the SQL database"
-   "Find documents in MongoDB where status is active"
-   "List all files in my Google Drive"
+1. **Install dependencies:**
+   ```bash
+   pip install -r my_agent/requirements.txt
    ```
 
-## Project Structure
+2. **Set up environment variables:**
+   Edit the `.env` file and add your OpenAI API key:
+   ```
+   OPENAI_API_KEY=your_actual_openai_api_key_here
+   ```
 
-```
-src/
-├── agent/
-│   ├── graph.py          # Main graph definition
-│   ├── nodes.py          # Node implementations
-│   ├── state.py          # State management
-│   ├── configuration.py  # System configuration
-│   ├── sql_agent.py      # SQL database operations
-│   ├── no_sql_agent.py   # MongoDB operations
-│   └── drive_agent.py    # Google Drive operations
-├── tests/                # Test files
-└── static/              # Static assets
+## Usage
+
+### Test the application:
+```bash
+python test_chat.py
 ```
 
-## Customization
+### Use in your own code:
+```python
+from langchain_core.messages import HumanMessage
+from my_agent.agent import graph
+from my_agent.utils.state import ChatState
 
-1. **Adding New Agents**:
-   - Create a new agent class in the `agent` directory
-   - Add the agent node to `nodes.py`
-   - Update the graph in `graph.py` to include the new agent
+# Create initial state
+initial_state = ChatState(
+    messages=[HumanMessage(content="Hello!")]
+)
 
-2. **Modifying the Supervisor**:
-   - Edit the routing logic in `nodes.py`
-   - Update the confidence thresholds and routing rules
+# Run the graph
+result = graph.invoke(initial_state)
 
-3. **Extending Database Support**:
-   - Add new database connection handlers
-   - Implement query translation for the new database type
+# Access the conversation
+for message in result["messages"]:
+    print(f"{message.type}: {message.content}")
+```
 
-## Development
+## How it works
 
-- Use LangGraph Studio's debugging features to:
-  - Edit past state
-  - Rerun from specific nodes
-  - Monitor agent interactions
-  - Analyze performance
+This is a simple chat application with a single node:
 
-- The system supports hot reloading for local development
+1. **State**: `ChatState` contains a list of messages
+2. **Node**: `chat_node` processes the latest message using OpenAI's GPT-3.5-turbo
+3. **Graph**: Simple linear flow: START → chat → END
 
-## Contributing
+The graph takes user messages, sends them to OpenAI, and returns the AI's response.
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+## Deployment
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-For issues and feature requests, please create an issue in the repository.
+This application is configured for LangGraph Platform deployment using the `langgraph.json` configuration file. The structure follows the recommended patterns for LangGraph applications. # LocoForge2
