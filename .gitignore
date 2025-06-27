@@ -12,3 +12,18 @@ logs/2025-05-04.log
 src/.env
 /__pycache__
 .env
+# Python virtual environment
+venv/
+
+# Environment variables
+.env
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# VSCode & macOS metadata (optional but helpful)
+.vscode/
+.DS_Store
