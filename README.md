@@ -261,13 +261,13 @@ python test_langgraph_studio.py
 "Find employees hired in the last 6 months"
 
 # Warehouse queries (NoSQL)
-"Show me products with low inventory"
+"Show me all the product ids"
 "What are the top-selling products this month?"
-"Find orders pending delivery"
+"list all the order data where customer id is 'CUST001'"
 
 # Hybrid queries (Both databases)
-"Compare employee headcount with warehouse inventory levels"
-"Show me employees and their associated project budgets vs product costs"
+"Show which employees placed orders for organic products"
+"Show employees who work on multiple projects and placed orders for those projects"
 ```
 
 ## 🔧 Advanced Features
