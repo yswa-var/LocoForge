@@ -42,6 +42,8 @@ The system implements a sophisticated **state machine** using LangGraph with the
 7. **`update_context`** - Conversation state management
 8. **`format_response`** - Final response formatting
 
+<img width="1021" alt="Screenshot 2025-06-29 at 9 21 49 PM" src="https://github.com/user-attachments/assets/3bbfe0c3-c950-4429-b194-9c6dcbb91e7f" />
+
 ## 🛠️ Technical Implementation
 
 ### State Management
