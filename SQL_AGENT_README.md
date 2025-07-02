@@ -1,10 +1,10 @@
 # SQL Query Executor Agent
 
-A powerful SQL query executor that uses OpenAI GPT-4o-mini to convert natural language prompts into SQL queries and execute them against the Employee Management database.
+A powerful SQL query executor that uses OpenAI gpt-4o-mini to convert natural language prompts into SQL queries and execute them against the Employee Management database.
 
 ## Features
 
-- 🤖 **AI-Powered Query Generation**: Convert natural language to SQL using OpenAI GPT-4o-mini
+- 🤖 **AI-Powered Query Generation**: Convert natural language to SQL using OpenAI gpt-4o-mini
 - 📊 **Database Context Awareness**: Full understanding of database schema and relationships
 - 🔄 **Structured JSON Output**: Consistent, machine-readable response format
 - 🛡️ **Error Handling**: Robust error handling for invalid queries

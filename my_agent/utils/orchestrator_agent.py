@@ -127,6 +127,15 @@ Classify the query into:
 - DOMAIN: employee, warehouse, hybrid, unknown
 - INTENT: select, analyze, compare, aggregate
 
+EXAMPLES:
+- "Show all employees in IT department" → {"domain": "employee", "intent": "select"}
+- "List products with low stock" → {"domain": "warehouse", "intent": "select"}
+- "Find employees with perfect attendance who placed orders over $100" → {"domain": "hybrid", "intent": "select"}
+- "Compare department budgets with order volumes" → {"domain": "hybrid", "intent": "compare"}
+- "Show which employees ordered organic products" → {"domain": "hybrid", "intent": "select"}
+
+HYBRID QUERIES combine employee data (attendance, departments, projects) with warehouse data (orders, products, inventory).
+
 Return ONLY a JSON object with "domain" and "intent" fields.
 """
         
@@ -164,35 +173,139 @@ Return ONLY a JSON object with "domain" and "intent" fields.
     def _decompose_hybrid_query(self, query: str) -> Dict[str, str]:
         """Decompose hybrid queries into domain-specific sub-queries"""
         system_prompt = """
-Decompose this hybrid query into separate sub-queries for:
-1. SQL (employee data): employees, departments, projects, attendance
-2. NoSQL (warehouse data): products, inventory, orders, suppliers
+You are an expert at decomposing hybrid database queries into separate sub-queries for different database systems.
 
-Return JSON with "sql" and "nosql" fields containing the sub-queries.
+TASK: Decompose the given hybrid query into two separate sub-queries:
+1. SQL sub-query: Focus ONLY on employee data (employees, departments, projects, attendance)
+2. NoSQL sub-query: Focus ONLY on warehouse data (products, inventory, orders, suppliers)
+
+IMPORTANT RULES:
+- Each sub-query should be focused on its specific domain
+- SQL sub-query should NOT mention warehouse/order data
+- NoSQL sub-query should NOT mention employee/attendance data
+- Both sub-queries should be complete, actionable queries
+- Do NOT include the other domain's data in each sub-query
+
+EXAMPLES:
+
+Query: "Find employees with perfect attendance who placed orders over $100"
+- SQL: "Find employees with perfect attendance records"
+- NoSQL: "Find orders with total amount over $100"
+
+Query: "Show which employees ordered organic products"
+- SQL: "Get all employee information"
+- NoSQL: "Find orders containing organic products"
+
+Query: "Compare department budgets with order volumes"
+- SQL: "Get department budgets"
+- NoSQL: "Calculate order volumes by department"
+
+Query: "Find employees in IT department who ordered fruits with low stock"
+- SQL: "Find employees in IT department"
+- NoSQL: "Find fruits with low stock levels"
+
+Query: "Show projects managed by employees who placed large orders"
+- SQL: "Get all projects and their managers"
+- NoSQL: "Find orders with large amounts"
+
+Return ONLY a JSON object with "sql" and "nosql" fields containing the decomposed sub-queries.
 """
         
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Decompose: {query}")
+            HumanMessage(content=f"Decompose this hybrid query: {query}")
         ]
         
         response = self.model.invoke(messages)
         
         try:
             decomposition = json.loads(response.content)
+            sql_query = decomposition.get("sql", "")
+            nosql_query = decomposition.get("nosql", "")
+            
+            # Validate that we got different queries
+            if sql_query == nosql_query or not sql_query or not nosql_query:
+                # Fallback to manual decomposition
+                return self._manual_decompose_hybrid_query(query)
+            
             return {
-                "sql": decomposition.get("sql", ""),
-                "nosql": decomposition.get("nosql", "")
+                "sql": sql_query,
+                "nosql": nosql_query
             }
         except:
-            return {"sql": query, "nosql": query}
+            # Fallback to manual decomposition
+            return self._manual_decompose_hybrid_query(query)
+    
+    def _manual_decompose_hybrid_query(self, query: str) -> Dict[str, str]:
+        """Manual fallback decomposition for hybrid queries"""
+        query_lower = query.lower()
+        
+        # Extract employee-related parts
+        employee_keywords = ["employees", "employee", "attendance", "department", "departments", "project", "projects", "manager", "managers"]
+        sql_parts = []
+        
+        # Extract warehouse-related parts
+        warehouse_keywords = ["orders", "order", "products", "product", "inventory", "stock", "supplier", "suppliers", "warehouse"]
+        nosql_parts = []
+        
+        # Simple keyword-based decomposition
+        words = query.split()
+        for word in words:
+            word_clean = word.lower().strip(".,!?")
+            if word_clean in employee_keywords:
+                sql_parts.append(word)
+            elif word_clean in warehouse_keywords:
+                nosql_parts.append(word)
+        
+        # Create basic sub-queries
+        if "attendance" in query_lower and "perfect" in query_lower:
+            sql_query = "Find employees with perfect attendance records"
+        elif "department" in query_lower:
+            sql_query = "Get employee and department information"
+        else:
+            sql_query = "Get employee information"
+        
+        if "orders" in query_lower and "over" in query_lower and "$" in query:
+            # Extract amount
+            import re
+            amount_match = re.search(r'\$(\d+)', query)
+            if amount_match:
+                amount = amount_match.group(1)
+                nosql_query = f"Find orders with total amount over ${amount}"
+            else:
+                nosql_query = "Find orders with large amounts"
+        elif "organic" in query_lower:
+            nosql_query = "Find orders containing organic products"
+        else:
+            nosql_query = "Get order information"
+        
+        return {
+            "sql": sql_query,
+            "nosql": nosql_query
+        }
     
     def execute_sql_query(self, query: str) -> Dict[str, Any]:
         """Execute SQL query using SQL agent"""
         if self.sql_agent is None:
             return {"success": False, "error": "SQL agent is not initialized. Check your environment variables and database setup.", "data": []}
         try:
-            return self.sql_agent.generate_and_execute_query(query)
+            # Check if this is already a SQL query (starts with SQL keywords)
+            sql_keywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'SHOW', 'DESCRIBE', 'EXPLAIN', 'USE']
+            is_direct_sql = any(query.strip().upper().startswith(keyword) for keyword in sql_keywords)
+            
+            if is_direct_sql:
+                # Execute the SQL query directly
+                result = self.sql_agent.execute_query(query)
+                # Format the result to match the expected structure
+                return {
+                    "prompt": query,
+                    "generated_sql": query,
+                    "execution_result": result,
+                    "timestamp": self._get_timestamp()
+                }
+            else:
+                # Generate SQL from natural language
+                return self.sql_agent.generate_and_execute_query(query)
         except Exception as e:
             return {"success": False, "error": str(e), "data": []}
     

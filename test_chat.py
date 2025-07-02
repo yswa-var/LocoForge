@@ -14,17 +14,17 @@ from my_agent.utils.state import ChatState
 load_dotenv()
 
 def test_chat():
-    """Test the chat application with a simple message."""
+    """Test the chat application with a database schema query."""
     
     # Check if API key is set
     if not os.getenv("OPENAI_API_KEY"):
         print("Please set your OPENAI_API_KEY in the .env file")
         return
     
-    # Create initial state with a user message
+    # Create initial state with a database schema query
     initial_state = ChatState(
         messages=[
-            HumanMessage(content="Hello! How are you today?")
+            HumanMessage(content="what the sql database schema?")
         ]
     )
     
@@ -39,5 +39,6 @@ def test_chat():
         print(f"{role}: {message.content}")
         print()
 
+# Test the chat functionality
 if __name__ == "__main__":
     test_chat() 
