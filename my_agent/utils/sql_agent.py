@@ -38,79 +38,119 @@ class SQLQueryExecutor:
         
         # Database schema context
         self.db_context = self._build_database_context()
+        print(self.db_context)
         
     def _build_database_context(self) -> str:
-        """Build comprehensive database context including schema and relationships"""
-        context = """
+        """Build comprehensive database context by dynamically querying the database schema"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get all table names
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            tables = cursor.fetchall()
+            
+            context_parts = ["DATABASE SCHEMA FOR EMPLOYEE MANAGEMENT SYSTEM:\n"]
+            
+            # Build context for each table
+            for table in tables:
+                table_name = table[0]
+                
+                # Get table schema
+                cursor.execute(f"PRAGMA table_info({table_name})")
+                columns = cursor.fetchall()
+                
+                # Get foreign key information
+                cursor.execute(f"PRAGMA foreign_key_list({table_name})")
+                foreign_keys = cursor.fetchall()
+                
+                # Build table description
+                context_parts.append(f"{len(context_parts)}. {table_name.upper()} TABLE:")
+                
+                for col in columns:
+                    col_id, col_name, col_type, not_null, default_val, pk = col
+                    
+                    # Find foreign key info for this column
+                    fk_info = ""
+                    for fk in foreign_keys:
+                        if fk[3] == col_name:  # Column name in foreign key
+                            fk_info = f" (FOREIGN KEY -> {fk[1]}.{fk[4]})"
+                            break
+                    
+                    # Build column description
+                    col_desc = f"   - {col_name} ({col_type}"
+                    if pk:
+                        col_desc += ", PRIMARY KEY"
+                    if not_null:
+                        col_desc += ", NOT NULL"
+                    if default_val is not None:
+                        col_desc += f", DEFAULT {default_val}"
+                    col_desc += fk_info + ")"
+                    
+                    context_parts.append(col_desc)
+                
+                context_parts.append("")  # Empty line between tables
+            
+            # Build relationships section
+            context_parts.append("RELATIONSHIPS:")
+            relationships = []
+            
+            for table in tables:
+                table_name = table[0]
+                cursor.execute(f"PRAGMA foreign_key_list({table_name})")
+                foreign_keys = cursor.fetchall()
+                
+                for fk in foreign_keys:
+                    fk_table = fk[1]  # Referenced table
+                    fk_column = fk[4]  # Referenced column
+                    local_column = fk[3]  # Local column
+                    
+                    # Determine relationship type (simplified)
+                    if fk_table == table_name:
+                        rel_type = "self-referencing"
+                    else:
+                        rel_type = "many-to-one"
+                    
+                    relationships.append(f"- {table_name}.{local_column} -> {fk_table}.{fk_column} ({rel_type})")
+            
+            if relationships:
+                context_parts.extend(relationships)
+            else:
+                context_parts.append("- No foreign key relationships found")
+            
+            # Add common query patterns
+            context_parts.extend([
+                "",
+                "COMMON QUERY PATTERNS:",
+                "- Use JOINs to get related data from multiple tables",
+                "- Use WHERE clauses for filtering",
+                "- Use ORDER BY for meaningful sorting",
+                "- Use LIMIT for result size control",
+                "- Use aggregate functions (COUNT, SUM, AVG, etc.) for analysis",
+                "- Use GROUP BY for grouped aggregations"
+            ])
+            
+            conn.close()
+            
+            return "\n".join(context_parts)
+            
+        except Exception as e:
+            # Fallback to basic context if schema querying fails
+            return f"""
 DATABASE SCHEMA FOR EMPLOYEE MANAGEMENT SYSTEM:
 
-1. DEPARTMENTS TABLE:
-   - department_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - department_name (TEXT, NOT NULL, UNIQUE)
-   - location (TEXT, NOT NULL)
-   - budget (REAL, DEFAULT 0.0)
-   - created_date (DATE, DEFAULT CURRENT_DATE)
+Note: Unable to dynamically load schema due to error: {str(e)}
+Using fallback context - consider checking database connection and permissions.
 
-2. EMPLOYEES TABLE:
-   - employee_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - first_name (TEXT, NOT NULL)
-   - last_name (TEXT, NOT NULL)
-   - email (TEXT, UNIQUE, NOT NULL)
-   - phone (TEXT)
-   - hire_date (DATE, NOT NULL)
-   - salary (REAL, NOT NULL)
-   - department_id (INTEGER, FOREIGN KEY -> departments.department_id)
-   - manager_id (INTEGER, FOREIGN KEY -> employees.employee_id)
-   - position (TEXT, NOT NULL)
-   - status (TEXT, DEFAULT 'active')
+Basic tables typically include:
+- employees
+- departments  
+- projects
+- employee_projects
+- attendance
 
-3. PROJECTS TABLE:
-   - project_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - project_name (TEXT, NOT NULL)
-   - description (TEXT)
-   - start_date (DATE, NOT NULL)
-   - end_date (DATE)
-   - budget (REAL, DEFAULT 0.0)
-   - status (TEXT, DEFAULT 'active')
-   - department_id (INTEGER, FOREIGN KEY -> departments.department_id)
-   - project_manager_id (INTEGER, FOREIGN KEY -> employees.employee_id)
-
-4. EMPLOYEE_PROJECTS TABLE (Junction table):
-   - assignment_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - employee_id (INTEGER, NOT NULL, FOREIGN KEY -> employees.employee_id)
-   - project_id (INTEGER, NOT NULL, FOREIGN KEY -> projects.project_id)
-   - role (TEXT, NOT NULL)
-   - hours_allocated (INTEGER, DEFAULT 0)
-   - start_date (DATE, NOT NULL)
-   - end_date (DATE)
-   - UNIQUE(employee_id, project_id)
-
-5. ATTENDANCE TABLE:
-   - attendance_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - employee_id (INTEGER, NOT NULL, FOREIGN KEY -> employees.employee_id)
-   - date (DATE, NOT NULL)
-   - check_in_time (TIME)
-   - check_out_time (TIME)
-   - hours_worked (REAL, DEFAULT 0.0)
-   - status (TEXT, DEFAULT 'present')
-   - UNIQUE(employee_id, date)
-
-RELATIONSHIPS:
-- Employees belong to Departments (many-to-one)
-- Employees can have Managers (self-referencing, many-to-one)
-- Projects belong to Departments (many-to-one)
-- Projects have Project Managers (many-to-one with employees)
-- Employees can work on multiple Projects (many-to-many via employee_projects)
-- Employees have Attendance records (one-to-many)
-
-COMMON QUERY PATTERNS:
-- JOIN employees with departments to get department info
-- JOIN employees with projects via employee_projects
-- Self-join employees for manager-subordinate relationships
-- Aggregate functions for salary, budget, hours analysis
-- Date-based queries for attendance and project timelines
+Please ensure your database is accessible and contains the expected tables.
 """
-        return context
     
     def execute_query(self, query: str) -> Dict[str, Any]:
         """

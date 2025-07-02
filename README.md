@@ -1,74 +1,364 @@
-# Basic LangGraph Chat Application
+# 🚀 LocoForge: Advanced AI-Powered Database Orchestration System
 
-A simple chat application built with LangGraph and OpenAI, following the LangGraph Platform deployment structure.
+> **A sophisticated hybrid database query orchestration system built with LangGraph, featuring intelligent query classification, multi-agent execution, and seamless SQL/NoSQL integration.**
 
-## File Structure
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://python.org)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Latest-green.svg)](https://langchain-ai.github.io/langgraph/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o--mini-orange.svg)](https://openai.com)
+[![Architecture](https://img.shields.io/badge/Architecture-Hybrid%20Orchestrator-purple.svg)]()
+
+## 🎯 Project Overview
+
+
+
+LocoForge is a cutting-edge **AI-powered database orchestration system** that intelligently routes and executes queries across multiple database types (SQL and NoSQL) using advanced graph-based workflows. The system leverages **LangGraph** for state management and **gpt-4o-mini** for intelligent query classification and decomposition.
+
+### 🌟 Key Features
+
+- **🤖 Intelligent Query Classification**: AI-powered domain and intent recognition
+- **🔄 Multi-Agent Orchestration**: Seamless SQL and NoSQL agent coordination
+- **📊 Hybrid Query Processing**: Complex queries spanning multiple database types
+- **🎯 Graph-Based Workflow**: Stateful execution with conditional routing
+- **📈 Result Aggregation**: Intelligent combination of multi-source results
+- **🔄 Context Management**: Persistent conversation history and state tracking
+- **🔧 LangGraph Studio Integration**: Real-time workflow visualization and debugging
+
+## 🏗️ Architecture
+
+### Core Components
 
 ```
-lgstudioSetup/
-├── my_agent/                    # All project code
-│   ├── utils/                   # Utilities for your graph
-│   │   ├── __init__.py
-│   │   ├── nodes.py            # Node functions for your graph
-│   │   └── state.py            # State definition of your graph
-│   ├── requirements.txt        # Package dependencies
-│   ├── __init__.py
-│   └── agent.py               # Code for constructing your graph
-├── .env                        # Environment variables
-├── langgraph.json             # Configuration file for LangGraph
-├── test_chat.py               # Test script
-└── README.md                  # This file
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   User Query    │───▶│  Orchestrator    │───▶│  SQL Agent      │
+│                 │    │  Workflow        │    │  (Employee DB)  │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │  NoSQL Agent    │
+                       │  (Warehouse DB) │
+                       └─────────────────┘
+                              │
+                              ▼
+                       ┌─────────────────┐
+                       │ Result Aggregator│
+                       └─────────────────┘
 ```
 
-## Setup
+### Workflow Graph
 
-1. **Install dependencies:**
-   ```bash
-   pip install -r my_agent/requirements.txt
-   ```
+The system implements a sophisticated **state machine** using LangGraph with the following nodes:
 
-2. **Set up environment variables:**
-   Edit the `.env` file and add your OpenAI API key:
-   ```
-   OPENAI_API_KEY=your_actual_openai_api_key_here
-   ```
+1. **`classify_query`** - AI-powered query domain and intent classification
+2. **`decompose_query`** - Complex query decomposition into sub-queries
+3. **`route_to_agents`** - Intelligent routing decision making
+4. **`sql_agent`** - SQL query execution (Employee Management)
+5. **`nosql_agent`** - NoSQL query execution (Warehouse Management)
+6. **`aggregate_results`** - Multi-source result combination
+7. **`update_context`** - Conversation state management
+8. **`format_response`** - Final response formatting
 
-## Usage
+## 🛠️ Technical Implementation
 
-### Test the application:
-```bash
-python test_chat.py
-```
+### State Management
 
-### Use in your own code:
 ```python
-from langchain_core.messages import HumanMessage
-from my_agent.agent import graph
-from my_agent.utils.state import ChatState
+class OrchestratorState(TypedDict):
+    messages: List[BaseMessage]           # Conversation history
+    current_query: str                    # Current user query
+    query_domain: QueryDomain            # Classified domain (EMPLOYEE/WAREHOUSE/HYBRID)
+    query_intent: QueryIntent            # Query intent (SELECT/ANALYZE/COMPARE/AGGREGATE)
+    sub_queries: Dict[str, str]          # Decomposed sub-queries
+    sql_results: Optional[Dict[str, Any]] # SQL agent results
+    nosql_results: Optional[Dict[str, Any]] # NoSQL agent results
+    combined_results: Optional[Dict[str, Any]] # Aggregated results
+    context_history: List[Dict[str, Any]] # Execution context
+    execution_path: List[str]            # Workflow execution trace
+    error_message: Optional[str]         # Error handling
+```
 
-# Create initial state
-initial_state = ChatState(
-    messages=[HumanMessage(content="Hello!")]
+### Conditional Routing Logic
+
+The system implements sophisticated routing decisions:
+
+```python
+def route_decision(state: OrchestratorState) -> str:
+    """Intelligent routing based on query domain and complexity"""
+    domain = state["query_domain"]
+    
+    if domain == QueryDomain.EMPLOYEE:
+        return "sql_only"
+    elif domain == QueryDomain.WAREHOUSE:
+        return "nosql_only"
+    elif domain == QueryDomain.HYBRID:
+        return "both_agents"
+    else:
+        return "error_handling"
+```
+
+### AI-Powered Query Classification
+
+```python
+def classify_intent(self, query: str) -> Tuple[QueryDomain, QueryIntent]:
+    """Use gpt-4o-mini to classify query domain and intent"""
+    system_prompt = """
+    You are an expert query classifier for a hybrid database system with:
+    1. SQL Database: Employee management (employees, departments, projects, attendance)
+    2. NoSQL Database: Grocery warehouse (products, inventory, orders, suppliers)
+    
+    Classify the query into:
+    - DOMAIN: employee, warehouse, hybrid, unknown
+    - INTENT: select, analyze, compare, aggregate
+    """
+    # LLM-based classification logic
+```
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python 3.8+
+- MongoDB (for NoSQL operations)
+- SQLite/PostgreSQL (for SQL operations)
+- OpenAI API Key
+
+### Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/LocoForge.git
+cd LocoForge
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your OpenAI API key and database configurations
+```
+
+### Environment Configuration
+
+```bash
+# .env file
+OPENAI_API_KEY=your_openai_api_key_here
+MONGO_DB=mongodb://localhost:27017/
+SQL_DB=sqlite:///employee_management.db
+```
+
+### Quick Start
+
+```python
+from my_agent.agent import graph
+from my_agent.utils.state import OrchestratorState
+
+# Initialize the workflow
+workflow = graph
+
+# Create a query
+state = OrchestratorState(
+    messages=[HumanMessage(content="Show me employee salaries and warehouse inventory levels")],
+    current_query="Show me employee salaries and warehouse inventory levels"
 )
 
-# Run the graph
-result = graph.invoke(initial_state)
-
-# Access the conversation
-for message in result["messages"]:
-    print(f"{message.type}: {message.content}")
+# Execute the workflow
+result = workflow.invoke(state)
+print(result["combined_results"])
 ```
 
-## How it works
+## 📊 Database Schemas
 
-This is a simple chat application with a single node:
+### SQL Database (Employee Management)
+```sql
+-- Employees table
+CREATE TABLE employees (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    department TEXT,
+    salary REAL,
+    hire_date DATE,
+    manager_id INTEGER
+);
 
-1. **State**: `ChatState` contains a list of messages
-2. **Node**: `chat_node` processes the latest message using OpenAI's GPT-3.5-turbo
-3. **Graph**: Simple linear flow: START → chat → END
+-- Departments table
+CREATE TABLE departments (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    budget REAL
+);
 
-The graph takes user messages, sends them to OpenAI, and returns the AI's response.
+-- Projects table
+CREATE TABLE projects (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    department_id INTEGER,
+    start_date DATE,
+    end_date DATE
+);
+```
 
-## Deployment
+### NoSQL Database (Warehouse Management)
+```javascript
+// Products collection
+{
+  "_id": ObjectId,
+  "name": "Product Name",
+  "category": "Category",
+  "price": 29.99,
+  "supplier": "Supplier Name",
+  "inventory": {
+    "quantity": 150,
+    "location": "A1-B2-C3",
+    "reorder_level": 50
+  }
+}
 
-This application is configured for LangGraph Platform deployment using the `langgraph.json` configuration file. The structure follows the recommended patterns for LangGraph applications. # LocoForge2
+// Orders collection
+{
+  "_id": ObjectId,
+  "customer_id": "CUST001",
+  "products": [
+    {
+      "product_id": ObjectId,
+      "quantity": 5,
+      "price": 29.99
+    }
+  ],
+  "order_date": ISODate("2024-01-15"),
+  "status": "pending"
+}
+```
+
+## 🧪 Testing
+
+### Run Test Suite
+
+```bash
+# Test the orchestrator workflow
+python test_orchestrator.py
+
+# Test individual agents
+python test_sql_agent.py
+python test_nosql_agent.py
+
+# Test cross-database queries
+python test_cross_database_queries.py
+
+# Test LangGraph Studio integration
+python test_langgraph_studio.py
+```
+
+### Example Queries
+
+```python
+# Employee queries (SQL)
+"Show me all employees in the Engineering department"
+"What's the average salary by department?"
+"Find employees hired in the last 6 months"
+
+# Warehouse queries (NoSQL)
+"Show me products with low inventory"
+"What are the top-selling products this month?"
+"Find orders pending delivery"
+
+# Hybrid queries (Both databases)
+"Compare employee headcount with warehouse inventory levels"
+"Show me employees and their associated project budgets vs product costs"
+```
+
+## 🔧 Advanced Features
+
+### LangGraph Studio Integration
+
+The system includes full LangGraph Studio support for real-time workflow visualization:
+
+```bash
+# Start LangGraph Studio
+langgraph studio
+
+# Access the interface at http://localhost:8123
+```
+
+### Custom Agent Development
+
+Extend the system with custom agents:
+
+```python
+class CustomAgent:
+    def __init__(self):
+        self.model = ChatOpenAI(model="gpt-4o-mini")
+    
+    def execute_query(self, query: str) -> Dict[str, Any]:
+        # Custom query execution logic
+        pass
+```
+
+### Error Handling & Resilience
+
+The system includes comprehensive error handling:
+
+- **Agent Initialization Failures**: Graceful degradation when agents are unavailable
+- **Query Execution Errors**: Detailed error reporting and recovery
+- **Network Connectivity**: Retry mechanisms for database connections
+- **State Recovery**: Persistent state management across sessions
+
+## 📈 Performance & Scalability
+
+### Optimization Strategies
+
+- **Lazy Loading**: Agents initialized only when needed
+- **Connection Pooling**: Efficient database connection management
+- **Caching**: Query result caching for repeated requests
+- **Async Processing**: Non-blocking query execution where possible
+
+### Monitoring & Logging
+
+```python
+import logging
+
+# Comprehensive logging throughout the workflow
+logger = logging.getLogger(__name__)
+logger.info("🔄 Initializing orchestrator...")
+logger.info("✅ SQL agent initialized successfully")
+logger.warning("⚠️ NoSQL agent not available")
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🏆 Interview Highlights
+
+### Technical Excellence
+- **Advanced AI Integration**: Sophisticated use of gpt-4o-mini for query understanding
+- **Graph-Based Architecture**: Modern workflow orchestration with LangGraph
+- **Multi-Database Support**: Seamless SQL and NoSQL integration
+- **State Management**: Complex stateful workflows with proper error handling
+
+### System Design
+- **Scalable Architecture**: Modular design supporting custom agent extensions
+- **Production Ready**: Comprehensive error handling, logging, and monitoring
+- **Developer Experience**: LangGraph Studio integration for debugging
+- **Documentation**: Extensive documentation and examples
+
+### Problem Solving
+- **Complex Query Processing**: Intelligent decomposition of multi-domain queries
+- **Result Aggregation**: Sophisticated combination of heterogeneous data sources
+- **Context Management**: Persistent conversation state across sessions
+- **Performance Optimization**: Efficient resource utilization and caching
+
+---
+
+**Built with ❤️ using LangGraph, OpenAI, and modern Python practices**

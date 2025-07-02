@@ -7,11 +7,10 @@ __pycache__/
 venv/
 .venv/
 env/
-.env/  # Note: This ignores the actual .env file. See below for alternatives.
-
-# If you want to ignore only the virtual environment and keep the .env file:
-# comment the above `.env/` line and use this instead:
-#.env           # Uncomment to ignore .env files only, not directories
+.gitignore
+.env
+# Environment files
+.env
 
 # VS Code settings
 .vscode/
@@ -43,3 +42,19 @@ coverage.xml
 build/
 dist/
 *.egg-info/
+
+# Python virtual environment
+venv/
+
+# Environment variables
+.env
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# VSCode & macOS metadata (optional but helpful)
+.vscode/
+.DS_Store
