@@ -3,4 +3,5 @@ langchain_openai
 langchain_core
 langchain_google_genai
 openai
-python-dotenv 
+python-dotenv
+psycopg2-binary 

@@ -35,12 +35,12 @@ def get_orchestrator():
             
             # Check environment before initialization
             mongo_db = "mongodb://localhost:27017/"
-            openai_key = os.getenv("OPENAI_API_KEY")
+            openai_key = os.getenv("OPENAPI_KEY")
             sql_db = os.getenv("SQL_DB")
             
             logger.info(f"LangGraph Studio Environment Check:")
             logger.info(f"  MONGO_DB: {'SET' if mongo_db else 'NOT SET'}")
-            logger.info(f"  OPENAI_API_KEY: {'SET' if openai_key else 'NOT SET'}")
+            logger.info(f"  OPENAPI_KEY: {'SET' if openai_key else 'NOT SET'}")
             logger.info(f"  SQL_DB: {'SET' if sql_db else 'NOT SET'}")
             
             _orchestrator_instance = HybridOrchestrator()
@@ -202,7 +202,7 @@ def classify_query_node(state: OrchestratorState) -> OrchestratorState:
     
     if is_direct_nosql_query(query):
         # Route directly to NoSQL agent
-        state["query_domain"] = QueryDomain.WAREHOUSE
+        state["query_domain"] = QueryDomain.MOVIES
         state["query_intent"] = QueryIntent.SELECT
         state["query_complexity"] = QueryComplexity.MEDIUM
         state["execution_path"].append("classify_query")
@@ -342,7 +342,7 @@ def decompose_query_node(state: OrchestratorState) -> OrchestratorState:
     
     # For direct NoSQL queries, pass through without decomposition
     if is_direct_nosql_query(query):
-        state["sub_queries"] = {"warehouse": query}
+        state["sub_queries"] = {"movies": query}
         state["execution_path"].append("decompose_query")
         return state
     
@@ -402,17 +402,19 @@ def data_engineer_node(state: OrchestratorState) -> OrchestratorState:
 - projects: project assignments and status
 - attendance: employee attendance records
 
-**NoSQL Database (Warehouse Management):**
-- products: product catalog and pricing
-- inventory: stock levels and warehouse locations
-- orders: customer orders and transactions
-- suppliers: supplier information
+**NoSQL Database (Sample Mflix - Movies):**
+- movies: movie information, ratings, cast, directors, genres
+- comments: user comments on movies
+- users: user information and accounts
+- sessions: user session data
+- theaters: movie theater locations
+- embedded_movies: movies with vector embeddings for search
 
 You can ask specific questions like:
 - "Show all employees in the IT department"
-- "List products with low stock levels"
+- "Find action movies with high ratings"
 - "Find employees with salary above $50,000"
-- "Show project completion status"
+- "Show movies from 2020"
 
 What specific information would you like to see?"""
     
@@ -490,8 +492,8 @@ def nosql_agent_node(state: OrchestratorState) -> OrchestratorState:
     domain = state["query_domain"]
     
     # Determine NoSQL query based on domain
-    if domain == QueryDomain.WAREHOUSE:
-        nosql_query = sub_queries.get("warehouse", state["current_query"])
+    if domain == QueryDomain.MOVIES:
+        nosql_query = sub_queries.get("movies", state["current_query"])
     elif domain == QueryDomain.HYBRID:
         nosql_query = sub_queries.get("nosql", "")
     else:
@@ -554,7 +556,7 @@ def aggregate_results_node(state: OrchestratorState) -> OrchestratorState:
                 "original_query": state["current_query"]
             }
         
-    elif domain == QueryDomain.WAREHOUSE:
+    elif domain == QueryDomain.MOVIES:
         # Format NoSQL results directly
         nosql_results = state.get("nosql_results", {})
         if nosql_results:
@@ -767,7 +769,7 @@ def route_decision(state: OrchestratorState) -> str:
     
     if domain == QueryDomain.EMPLOYEE:
         return "sql_only"
-    elif domain == QueryDomain.WAREHOUSE:
+    elif domain == QueryDomain.MOVIES:
         return "nosql_only"
     elif domain == QueryDomain.HYBRID:
         return "both_agents"

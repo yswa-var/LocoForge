@@ -24,10 +24,13 @@ pandas>=2.0.0
 pymongo>=4.6.0
 dnspython>=2.4.0
 
+# PostgreSQL support
+psycopg2-binary>=2.9.0
+
 # Google Generative AI
 google-generativeai>=0.1.0
 
-# SQLite3 (built into Python)
+# SQLite3 (built into Python) - Now using PostgreSQL instead
 # sqlite3>=2.0.0
 
 # Web framework for deployment

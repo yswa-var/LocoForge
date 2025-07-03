@@ -16,13 +16,13 @@ def check_environment():
     
     env_vars = {
         "MONGO_DB": os.getenv("MONGO_DB"),
-        "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
+        "OPENAPI_KEY": os.getenv("OPENAPI_API"),
         "SQL_DB": os.getenv("SQL_DB")
     }
     
     for var, value in env_vars.items():
         if value:
-            if var == "OPENAI_API_KEY":
+            if var == "OPENAPI_KEY":
                 print(f"✅ {var}: SET")
             else:
                 print(f"✅ {var}: {value}")

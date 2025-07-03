@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script for the basic chat application.
-Make sure to set your OPENAI_API_KEY in the .env file before running.
+Make sure to set your OPENAPI_KEY in the .env file before running.
 """
 
 import os
@@ -17,8 +17,8 @@ def test_chat():
     """Test the chat application with a database schema query."""
     
     # Check if API key is set
-    if not os.getenv("OPENAI_API_KEY"):
-        print("Please set your OPENAI_API_KEY in the .env file")
+    if not os.getenv("OPENAPI_KEY"):
+        print("Please set your OPENAPI_KEY in the .env file")
         return
     
     # Create initial state with a database schema query

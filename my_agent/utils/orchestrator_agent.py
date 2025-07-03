@@ -55,12 +55,12 @@ class HybridOrchestrator:
         
         # Verify environment variables
         mongo_db = "mongodb://localhost:27017/"
-        openai_key = os.getenv("OPENAI_API_KEY")
-        sql_db = os.getenv("SQL_DB")
+        openai_key = os.getenv("OPENAPI_KEY")
+        postgres_db_url = os.getenv("POSTGRES_DB_URL")
         
         logger.info(f"Environment check - MONGO_DB: {'SET' if mongo_db else 'NOT SET'}")
-        logger.info(f"Environment check - OPENAI_API_KEY: {'SET' if openai_key else 'NOT SET'}")
-        logger.info(f"Environment check - SQL_DB: {'SET' if sql_db else 'NOT SET'}")
+        logger.info(f"Environment check - OPENAPI_KEY: {'SET' if openai_key else 'NOT SET'}")
+        logger.info(f"Environment check - POSTGRES_DB_URL: {'SET' if postgres_db_url else 'NOT SET'}")
         
         if SQL_AVAILABLE:
             try:
@@ -90,7 +90,7 @@ class HybridOrchestrator:
         
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+            api_key=os.getenv("OPENAPI_KEY") or os.getenv("OPENAI_API_KEY")
         )
         
         # Domain keywords for classification
@@ -99,9 +99,9 @@ class HybridOrchestrator:
                 "employee", "staff", "department", "salary", "manager", "hire", 
                 "attendance", "project", "position", "budget", "performance"
             ],
-            QueryDomain.WAREHOUSE: [
-                "product", "inventory", "stock", "order", "supplier", "warehouse",
-                "batch", "expiry", "reorder", "movement", "customer", "delivery"
+            QueryDomain.MOVIES: [
+                "movie", "movies", "rating", "ratings", "comment", "comments", "theater", "theaters",
+                "cast", "director", "directors", "genre", "genres", "year", "award", "awards"
             ]
         }
         
@@ -121,20 +121,20 @@ class HybridOrchestrator:
         system_prompt = """
 You are an expert query classifier for a hybrid database system with:
 1. SQL Database: Employee management (employees, departments, projects, attendance)
-2. NoSQL Database: Grocery warehouse (products, inventory, orders, suppliers)
+2. NoSQL Database: Sample Mflix (movies, comments, users, theaters)
 
 Classify the query into:
-- DOMAIN: employee, warehouse, hybrid, unknown
+- DOMAIN: employee, movies, hybrid, unknown
 - INTENT: select, analyze, compare, aggregate
 
 EXAMPLES:
 - "Show all employees in IT department" → {"domain": "employee", "intent": "select"}
-- "List products with low stock" → {"domain": "warehouse", "intent": "select"}
-- "Find employees with perfect attendance who placed orders over $100" → {"domain": "hybrid", "intent": "select"}
-- "Compare department budgets with order volumes" → {"domain": "hybrid", "intent": "compare"}
-- "Show which employees ordered organic products" → {"domain": "hybrid", "intent": "select"}
+- "Find action movies with high ratings" → {"domain": "movies", "intent": "select"}
+- "Find employees who watched action movies" → {"domain": "hybrid", "intent": "select"}
+- "Compare department budgets with movie ratings" → {"domain": "hybrid", "intent": "compare"}
+- "Show which employees commented on action movies" → {"domain": "hybrid", "intent": "select"}
 
-HYBRID QUERIES combine employee data (attendance, departments, projects) with warehouse data (orders, products, inventory).
+HYBRID QUERIES combine employee data (attendance, departments, projects) with movie data (movies, comments, ratings).
 
 Return ONLY a JSON object with "domain" and "intent" fields.
 """
@@ -177,36 +177,36 @@ You are an expert at decomposing hybrid database queries into separate sub-queri
 
 TASK: Decompose the given hybrid query into two separate sub-queries:
 1. SQL sub-query: Focus ONLY on employee data (employees, departments, projects, attendance)
-2. NoSQL sub-query: Focus ONLY on warehouse data (products, inventory, orders, suppliers)
+2. NoSQL sub-query: Focus ONLY on movie data (movies, comments, users, theaters)
 
 IMPORTANT RULES:
 - Each sub-query should be focused on its specific domain
-- SQL sub-query should NOT mention warehouse/order data
+- SQL sub-query should NOT mention movie/comment data
 - NoSQL sub-query should NOT mention employee/attendance data
 - Both sub-queries should be complete, actionable queries
 - Do NOT include the other domain's data in each sub-query
 
 EXAMPLES:
 
-Query: "Find employees with perfect attendance who placed orders over $100"
-- SQL: "Find employees with perfect attendance records"
-- NoSQL: "Find orders with total amount over $100"
-
-Query: "Show which employees ordered organic products"
+Query: "Find employees who watched action movies"
 - SQL: "Get all employee information"
-- NoSQL: "Find orders containing organic products"
+- NoSQL: "Find action movies"
 
-Query: "Compare department budgets with order volumes"
+Query: "Show which employees commented on action movies"
+- SQL: "Get all employee information"
+- NoSQL: "Find comments on action movies"
+
+Query: "Compare department budgets with movie ratings"
 - SQL: "Get department budgets"
-- NoSQL: "Calculate order volumes by department"
+- NoSQL: "Calculate average movie ratings"
 
-Query: "Find employees in IT department who ordered fruits with low stock"
+Query: "Find employees in IT department who watched high-rated movies"
 - SQL: "Find employees in IT department"
-- NoSQL: "Find fruits with low stock levels"
+- NoSQL: "Find movies with high ratings"
 
-Query: "Show projects managed by employees who placed large orders"
+Query: "Show projects managed by employees who watched action movies"
 - SQL: "Get all projects and their managers"
-- NoSQL: "Find orders with large amounts"
+- NoSQL: "Find action movies"
 
 Return ONLY a JSON object with "sql" and "nosql" fields containing the decomposed sub-queries.
 """
@@ -244,8 +244,8 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
         employee_keywords = ["employees", "employee", "attendance", "department", "departments", "project", "projects", "manager", "managers"]
         sql_parts = []
         
-        # Extract warehouse-related parts
-        warehouse_keywords = ["orders", "order", "products", "product", "inventory", "stock", "supplier", "suppliers", "warehouse"]
+        # Extract movie-related parts
+        movie_keywords = ["movies", "movie", "rating", "ratings", "comment", "comments", "theater", "theaters", "cast", "director", "directors", "genre", "genres"]
         nosql_parts = []
         
         # Simple keyword-based decomposition
@@ -254,7 +254,7 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
             word_clean = word.lower().strip(".,!?")
             if word_clean in employee_keywords:
                 sql_parts.append(word)
-            elif word_clean in warehouse_keywords:
+            elif word_clean in movie_keywords:
                 nosql_parts.append(word)
         
         # Create basic sub-queries
@@ -265,19 +265,14 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
         else:
             sql_query = "Get employee information"
         
-        if "orders" in query_lower and "over" in query_lower and "$" in query:
-            # Extract amount
-            import re
-            amount_match = re.search(r'\$(\d+)', query)
-            if amount_match:
-                amount = amount_match.group(1)
-                nosql_query = f"Find orders with total amount over ${amount}"
-            else:
-                nosql_query = "Find orders with large amounts"
-        elif "organic" in query_lower:
-            nosql_query = "Find orders containing organic products"
+        if "action" in query_lower and "movie" in query_lower:
+            nosql_query = "Find action movies"
+        elif "rating" in query_lower and "high" in query_lower:
+            nosql_query = "Find movies with high ratings"
+        elif "comment" in query_lower:
+            nosql_query = "Find movie comments"
         else:
-            nosql_query = "Get order information"
+            nosql_query = "Get movie information"
         
         return {
             "sql": sql_query,
@@ -440,8 +435,8 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
             },
             "environment": {
                 "mongo_db": "mongodb://localhost:27017/",
-                "openai_key": "SET" if os.getenv("OPENAI_API_KEY") else "NOT SET",
-                "sql_db": os.getenv("SQL_DB", "NOT SET")
+                "openai_key": "SET" if os.getenv("OPENAPI_KEY") else "NOT SET",
+                "postgres_db_url": os.getenv("POSTGRES_DB_URL", "NOT SET")
             }
         }
         
@@ -453,8 +448,8 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
         
         if not self.sql_agent and SQL_AVAILABLE:
             status["sql_agent"]["error"] = "Agent import succeeded but initialization failed"
-            if not os.getenv("SQL_DB"):
-                status["sql_agent"]["error"] = "SQL_DB environment variable not set"
+            if not os.getenv("POSTGRES_DB_URL"):
+                status["sql_agent"]["error"] = "POSTGRES_DB_URL environment variable not set"
         
         return status
 

@@ -25,33 +25,33 @@ class DataEngineerAgent:
         """Initialize the Data Engineer Agent"""
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+            api_key=os.getenv("OPENAPI_KEY") or os.getenv("OPENAI_API_KEY")
         )
         
         # Database context for professional responses
         self.database_context = {
             "sql_database": {
-                "name": "Employee Management System",
-                "tables": ["employees", "departments", "projects", "attendance"],
-                "description": "SQL database containing employee information, department data, project assignments, and attendance records",
-                "key_entities": ["employees", "departments", "projects", "attendance"],
+                "name": "Employees Database (Neon Sample)",
+                "tables": ["employees.employee", "employees.department", "employees.dept_emp", "employees.dept_manager", "employees.salary", "employees.title"],
+                "description": "PostgreSQL database containing comprehensive employee information, department data, salary history, and job titles",
+                "key_entities": ["employees", "departments", "salaries", "titles"],
                 "sample_queries": [
-                    "Show all employees in the IT department",
-                    "Find employees with salary above $50,000",
-                    "List departments with more than 10 employees",
-                    "Show project completion status"
+                    "Show all employees in the Sales department",
+                    "Find current employees with salary above $50,000",
+                    "List departments with their average salary",
+                    "Show employee titles and their counts"
                 ]
             },
             "nosql_database": {
-                "name": "Grocery Warehouse Management",
-                "collections": ["products", "inventory", "orders", "suppliers"],
-                "description": "NoSQL database containing product information, inventory levels, customer orders, and supplier data",
-                "key_entities": ["products", "inventory", "orders", "suppliers"],
+                "name": "Sample Mflix Database",
+                "collections": ["movies", "comments", "users", "sessions", "theaters", "embedded_movies"],
+                "description": "NoSQL database containing movie information, user comments, ratings, and theater locations",
+                "key_entities": ["movies", "comments", "users", "sessions", "theaters"],
                 "sample_queries": [
-                    "Show products with low stock levels",
-                    "Find orders from last week",
-                    "List products in the Fruits category",
-                    "Show inventory by warehouse zone"
+                    "Find action movies with high ratings",
+                    "Show movies from 2020",
+                    "List movies with the most comments",
+                    "Show top rated directors"
                 ]
             }
         }
@@ -225,7 +225,7 @@ ANALYSIS TASK:
 Analyze the query and return a JSON object with:
 - "is_clear": boolean (true if query is clear and actionable)
 - "query_type": string (one of: clear, ambiguous, non_domain, technical)
-- "domain_relevance": string (employee, warehouse, hybrid, none)
+- "domain_relevance": string (employee, movies, hybrid, none)
 - "complexity_level": string (simple, medium, complex)
 - "confidence": float (0.0 to 1.0)
 - "issues": list of strings (specific issues found)
@@ -238,7 +238,7 @@ EXAMPLES:
 - "Show all employees in IT department" → {{"is_clear": true, "query_type": "clear", "domain_relevance": "employee", "complexity_level": "simple", "confidence": 0.9, "issues": [], "suggested_domain": "employee"}}
 
 IMPORTANT RULES:
-- Queries that combine employee data (attendance, departments, projects) with warehouse data (orders, products, inventory) should be classified as "hybrid" domain_relevance and "clear" query_type
+- Queries that combine employee data (attendance, departments, projects) with movie data (movies, comments, ratings) should be classified as "hybrid" domain_relevance and "clear" query_type
 - Only queries completely outside the system scope (weather, cooking, etc.) should be "non_domain"
 - Hybrid queries are valid and should be processed by the system
 - Direct SQL/NoSQL queries should be classified as "clear" with appropriate domain_relevance
@@ -264,23 +264,23 @@ Return JSON with "suggestions" field containing a list of strings.
 EXAMPLES:
 For "Show me everything":
 {{
-  "suggestions": [
-    "Show all employees in the company",
-    "List all products in the warehouse",
-    "Display all departments and their budgets",
-    "Show current inventory levels for all products",
-    "List all active projects and their status"
-  ]
+      "suggestions": [
+        "Show all employees in the company",
+        "Find action movies with high ratings",
+        "Display all departments and their budgets",
+        "Show movies from 2020",
+        "List all active projects and their status"
+      ]
 }}
 
 For "What's the data?":
 {{
-  "suggestions": [
-    "Show a summary of employee data",
-    "Display warehouse inventory overview",
-    "List all available data categories",
-    "Show sample data from each database"
-  ]
+      "suggestions": [
+        "Show a summary of employee data",
+        "Display movie database overview",
+        "List all available data categories",
+        "Show sample data from each database"
+      ]
 }}
 
 Return ONLY the JSON object.
@@ -340,8 +340,8 @@ EXAMPLE RESPONSE:
 
 Here are some examples of what I can help you with:
 - Employee data: salaries, departments, attendance, projects
-- Warehouse data: products, inventory, orders, suppliers
-- Cross-domain analysis: employee ordering patterns, department spending
+- Movie data: movies, ratings, comments, theaters
+- Cross-domain analysis: employee movie preferences, department entertainment patterns
 
 Would you like to explore any of these areas instead?"
 
@@ -377,17 +377,18 @@ For "what the sql database schema?":
 - **projects** table: id, name, description, status, start_date, end_date
 - **attendance** table: id, employee_id, date, check_in, check_out
 
-**NoSQL Database (Warehouse Management):**
-- **products** collection: name, category, price, supplier_id
-- **inventory** collection: product_id, quantity, warehouse_zone, last_updated
-- **orders** collection: customer_id, products, total_amount, order_date
-- **suppliers** collection: name, contact_info, products_supplied
+**NoSQL Database (Sample Mflix - Movies):**
+- **movies** collection: title, year, genres, cast, directors, ratings
+- **comments** collection: user comments on movies
+- **users** collection: user information and accounts
+- **sessions** collection: user session data
+- **theaters** collection: movie theater locations
 
 You can ask specific questions like:
 - 'Show all employees in the IT department'
-- 'List products with low stock levels'
+- 'Find action movies with high ratings'
 - 'Find employees with salary above $50,000'
-- 'Show project completion status'
+- 'Show movies from 2020'
 
 What specific information would you like to see?"
 
@@ -410,7 +411,7 @@ Be helpful, informative, and guide users toward specific, actionable queries.
         """Get default suggestions when LLM fails"""
         return [
             "Show all employees in the company",
-            "List all products in the warehouse",
+            "Find action movies with high ratings",
             "Display all departments and their budgets",
-            "Show current inventory levels"
+            "Show movies from 2020"
         ] 

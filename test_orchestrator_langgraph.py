@@ -64,7 +64,7 @@ if __name__ == "__main__":
     # Check environment variables
     print("🔍 Environment Check:")
     print(f"MONGO_DB: {'SET' if os.getenv('MONGO_DB') else 'NOT SET'}")
-    print(f"OPENAI_API_KEY: {'SET' if os.getenv('OPENAI_API_KEY') else 'NOT SET'}")
+    print(f"OPENAPI_KEY: {'SET' if os.getenv('OPENAPI_KEY') else 'NOT SET'}")
     print(f"SQL_DB: {'SET' if os.getenv('SQL_DB') else 'NOT SET'}")
     print()
     

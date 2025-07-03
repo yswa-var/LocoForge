@@ -4,7 +4,7 @@ from enum import Enum
 
 class QueryDomain(Enum):
     EMPLOYEE = "employee"
-    WAREHOUSE = "warehouse"
+    MOVIES = "movies"
     HYBRID = "hybrid"
     UNKNOWN = "unknown"
     UNCLEAR = "unclear"  

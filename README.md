@@ -145,7 +145,7 @@ cp .env.example .env
 
 ```bash
 # .env file
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAPI_KEY=your_OPENAPI_KEY_here
 MONGO_DB=mongodb://localhost:27017/
 SQL_DB=sqlite:///employee_management.db
 ```

@@ -18,11 +18,11 @@ def test_langgraph_studio_setup():
     # Check environment variables
     print("1️⃣  Environment Variables:")
     mongo_db = os.getenv("MONGO_DB")
-    openai_key = os.getenv("OPENAI_API_KEY")
+    openai_key = os.getenv("OPENAPI_KEY")
     sql_db = os.getenv("SQL_DB")
     
     print(f"   MONGO_DB: {mongo_db}")
-    print(f"   OPENAI_API_KEY: {'SET' if openai_key else 'NOT SET'}")
+    print(f"   OPENAPI_KEY: {'SET' if openai_key else 'NOT SET'}")
     print(f"   SQL_DB: {sql_db}")
     
     # Test orchestrator nodes
