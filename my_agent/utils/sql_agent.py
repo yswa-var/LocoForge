@@ -7,8 +7,8 @@ Returns structured JSON output with query and results
 
 import os
 import json
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import asyncio
+import asyncpg
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -46,9 +46,9 @@ class SQLQueryExecutor:
         # Test database connection and build context
         try:
             # Test connection first
-            self._test_connection()
+            asyncio.run(self._test_connection())
             # Database schema context
-            self.db_context = self._build_database_context()
+            self.db_context = asyncio.run(self._build_database_context())
             print("✅ SQL Agent initialized successfully")
         except Exception as e:
             print(f"❌ SQL Agent initialization failed: {e}")
@@ -56,22 +56,20 @@ class SQLQueryExecutor:
             self.db_context = self._get_fallback_context()
             raise e
         
-    def _test_connection(self):
+    async def _test_connection(self):
         """Test database connection"""
         try:
-            conn = psycopg2.connect(self.db_url)
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-            conn.close()
+            conn = await asyncpg.connect(self.db_url)
+            await conn.execute("SELECT 1")
+            await conn.close()
             print("✅ Database connection successful")
         except Exception as e:
             print(f"❌ Database connection failed: {e}")
             raise e
     
-    def _get_connection(self):
+    async def _get_connection(self):
         """Get a PostgreSQL connection"""
-        return psycopg2.connect(self.db_url)
+        return await asyncpg.connect(self.db_url)
     
     def _get_fallback_context(self) -> str:
         """Get fallback database context when connection fails"""
@@ -94,30 +92,28 @@ Sample queries:
 Please ensure your database is accessible and contains the expected tables.
 """
         
-    def _build_database_context(self) -> str:
+    async def _build_database_context(self) -> str:
         """Build comprehensive database context by dynamically querying the database schema"""
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor()
+            conn = await self._get_connection()
             
             # Get all table names from the employees schema (Neon employees database)
-            cursor.execute("""
+            tables = await conn.fetch("""
                 SELECT table_name 
                 FROM information_schema.tables 
                 WHERE table_schema = 'employees' 
                 AND table_type = 'BASE TABLE'
                 ORDER BY table_name
             """)
-            tables = cursor.fetchall()
             
             context_parts = ["DATABASE SCHEMA FOR EMPLOYEES DATABASE (Neon Sample):\n"]
             
             # Build context for each table
             for table in tables:
-                table_name = table[0]
+                table_name = table['table_name']
                 
                 # Get table schema
-                cursor.execute("""
+                columns = await conn.fetch("""
                     SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, 
                            CASE WHEN pk.column_name IS NOT NULL THEN 'YES' ELSE 'NO' END as is_primary_key
                     FROM information_schema.columns c
@@ -127,16 +123,15 @@ Please ensure your database is accessible and contains the expected tables.
                         JOIN information_schema.key_column_usage ku 
                             ON tc.constraint_name = ku.constraint_name
                         WHERE tc.constraint_type = 'PRIMARY KEY' 
-                        AND ku.table_name = %s
+                        AND ku.table_name = $1
                         AND tc.table_schema = 'employees'
                     ) pk ON c.column_name = pk.column_name
-                    WHERE c.table_name = %s AND c.table_schema = 'employees'
+                    WHERE c.table_name = $1 AND c.table_schema = 'employees'
                     ORDER BY c.ordinal_position
-                """, (table_name, table_name))
-                columns = cursor.fetchall()
+                """, table_name)
                 
                 # Get foreign key information
-                cursor.execute("""
+                foreign_keys = await conn.fetch("""
                     SELECT 
                         kcu.column_name,
                         ccu.table_name AS foreign_table_name,
@@ -149,22 +144,25 @@ Please ensure your database is accessible and contains the expected tables.
                         ON ccu.constraint_name = tc.constraint_name
                         AND ccu.table_schema = tc.table_schema
                     WHERE tc.constraint_type = 'FOREIGN KEY' 
-                    AND tc.table_name = %s
+                    AND tc.table_name = $1
                     AND tc.table_schema = 'employees'
-                """, (table_name,))
-                foreign_keys = cursor.fetchall()
+                """, table_name)
                 
                 # Build table description
                 context_parts.append(f"{len(context_parts)}. {table_name.upper()} TABLE:")
                 
                 for col in columns:
-                    col_name, col_type, is_nullable, default_val, is_pk = col
+                    col_name = col['column_name']
+                    col_type = col['data_type']
+                    is_nullable = col['is_nullable']
+                    default_val = col['column_default']
+                    is_pk = col['is_primary_key']
                     
                     # Find foreign key info for this column
                     fk_info = ""
                     for fk in foreign_keys:
-                        if fk[0] == col_name:  # Column name in foreign key
-                            fk_info = f" (FOREIGN KEY -> {fk[1]}.{fk[2]})"
+                        if fk['column_name'] == col_name:  # Column name in foreign key
+                            fk_info = f" (FOREIGN KEY -> {fk['foreign_table_name']}.{fk['foreign_column_name']})"
                             break
                     
                     # Build column description
@@ -186,8 +184,8 @@ Please ensure your database is accessible and contains the expected tables.
             relationships = []
             
             for table in tables:
-                table_name = table[0]
-                cursor.execute("""
+                table_name = table['table_name']
+                foreign_keys = await conn.fetch("""
                     SELECT 
                         kcu.column_name,
                         ccu.table_name AS foreign_table_name,
@@ -200,15 +198,14 @@ Please ensure your database is accessible and contains the expected tables.
                         ON ccu.constraint_name = tc.constraint_name
                         AND ccu.table_schema = tc.table_schema
                     WHERE tc.constraint_type = 'FOREIGN KEY' 
-                    AND tc.table_name = %s
+                    AND tc.table_name = $1
                     AND tc.table_schema = 'employees'
-                """, (table_name,))
-                foreign_keys = cursor.fetchall()
+                """, table_name)
                 
                 for fk in foreign_keys:
-                    local_column = fk[0]
-                    fk_table = fk[1]
-                    fk_column = fk[2]
+                    local_column = fk['column_name']
+                    fk_table = fk['foreign_table_name']
+                    fk_column = fk['foreign_column_name']
                     
                     # Determine relationship type (simplified)
                     if fk_table == table_name:
@@ -238,7 +235,7 @@ Please ensure your database is accessible and contains the expected tables.
                 "- Use 'employees.employee', 'employees.department', 'employees.salary', etc."
             ])
             
-            conn.close()
+            await conn.close()
             
             return "\n".join(context_parts)
             
@@ -248,9 +245,9 @@ Please ensure your database is accessible and contains the expected tables.
             print("   Using fallback context - consider checking database connection and permissions.")
             return self._get_fallback_context()
     
-    def execute_query(self, query: str) -> Dict[str, Any]:
+    async def execute_query_async(self, query: str) -> Dict[str, Any]:
         """
-        Execute a SQL query and return results
+        Execute a SQL query and return results (async version)
         
         Args:
             query: SQL query to execute
@@ -259,18 +256,17 @@ Please ensure your database is accessible and contains the expected tables.
             Dictionary with query results and metadata
         """
         try:
-            conn = self._get_connection()
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            conn = await self._get_connection()
             
             # Execute query
-            cursor.execute(query)
+            result = await conn.fetch(query)
             
-            # If the query returns rows, fetch them
-            if cursor.description:
-                columns = [desc[0] for desc in cursor.description]
-                results = cursor.fetchall()
+            # If the query returns rows, process them
+            if result:
+                # Get column names from the first row
+                columns = list(result[0].keys()) if result else []
                 data = []
-                for row in results:
+                for row in result:
                     row_dict = {}
                     for key, value in row.items():
                         if hasattr(value, 'isoformat'):
@@ -278,7 +274,7 @@ Please ensure your database is accessible and contains the expected tables.
                         else:
                             row_dict[key] = value
                     data.append(row_dict)
-                conn.close()
+                await conn.close()
                 return {
                     "success": True,
                     "query": query,
@@ -288,8 +284,7 @@ Please ensure your database is accessible and contains the expected tables.
                 }
             else:
                 # DDL/DML: commit and return success
-                conn.commit()
-                conn.close()
+                await conn.close()
                 return {
                     "success": True,
                     "query": query,
@@ -305,6 +300,18 @@ Please ensure your database is accessible and contains the expected tables.
                 "error": str(e),
                 "data": []
             }
+    
+    def execute_query(self, query: str) -> Dict[str, Any]:
+        """
+        Execute a SQL query and return results (sync wrapper)
+        
+        Args:
+            query: SQL query to execute
+            
+        Returns:
+            Dictionary with query results and metadata
+        """
+        return asyncio.run(self.execute_query_async(query))
     
     def generate_and_execute_query(self, prompt: str) -> Dict[str, Any]:
         """

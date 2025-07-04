@@ -24,8 +24,8 @@ pandas>=2.0.0
 pymongo>=4.6.0
 dnspython>=2.4.0
 
-# PostgreSQL support (using binary version for easier installation)
-psycopg2-binary>=2.9.0
+# PostgreSQL support (using asyncpg for better performance)
+asyncpg>=0.29.0
 
 # Google Generative AI
 google-generativeai>=0.1.0

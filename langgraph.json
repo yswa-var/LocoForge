@@ -1,4 +1,3 @@
-
 {
   "dependencies": ["./my_agent"],
   "graphs": {

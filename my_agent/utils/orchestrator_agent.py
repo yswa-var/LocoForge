@@ -29,6 +29,11 @@ except ImportError as e:
     print(f"Warning: SQL agent not available: {e}")
     print(traceback.format_exc())
     SQL_AVAILABLE = False
+except Exception as e:
+    import traceback
+    print(f"Warning: SQL agent not available (non-import error): {e}")
+    print(traceback.format_exc())
+    SQL_AVAILABLE = False
 
 try:
     from my_agent.utils.nosql_agent import NoSQLQueryExecutor
@@ -57,7 +62,7 @@ class HybridOrchestrator:
                 logger.info(f"Loaded environment from: {env_path}")
         
         # Verify environment variables
-        mongo_db = "mongodb://localhost:27017/"
+        mongo_db = os.getenv("MONGO_DB")
         openai_key = os.getenv("OPENAPI_KEY") or os.getenv("OPENAI_API_KEY")
         postgres_db_url = os.getenv("POSTGRES_DB_URL")
         
@@ -206,8 +211,8 @@ Return ONLY a JSON object with "domain" and "intent" fields.
         employee_keywords = [
             "employee", "employees", "staff", "department", "departments", 
             "salary", "salaries", "attendance", "project", "projects", 
-            "manager", "managers", "hire", "hired", "title", "titles", 
-            "position", "positions", "first name", "last name", "name"
+            "manager", "managers", "hire", "hired", 
+            "position", "positions", "first name", "last name"
         ]
         
         # Movie domain keywords
@@ -217,9 +222,9 @@ Return ONLY a JSON object with "domain" and "intent" fields.
             "genre", "genres", "year", "award", "awards"
         ]
         
-        # Check for employee keywords
-        employee_count = sum(1 for keyword in employee_keywords if keyword in query_lower)
-        movie_count = sum(1 for keyword in movie_keywords if keyword in query_lower)
+        # Check for employee keywords (exact word matching to avoid false positives)
+        employee_count = sum(1 for keyword in employee_keywords if f" {keyword} " in f" {query_lower} " or query_lower.startswith(f"{keyword} ") or query_lower.endswith(f" {keyword}"))
+        movie_count = sum(1 for keyword in movie_keywords if f" {keyword} " in f" {query_lower} " or query_lower.startswith(f"{keyword} ") or query_lower.endswith(f" {keyword}"))
         
         # Determine domain based on keyword presence
         if employee_count > 0 and movie_count == 0:
@@ -564,7 +569,7 @@ Return ONLY a JSON object with "sql" and "nosql" fields containing the decompose
                 "status": "✅ Ready" if self.nosql_agent else "❌ Not initialized"
             },
             "environment": {
-                "mongo_db": "mongodb://localhost:27017/",
+                "mongo_db": os.getenv("MONGO_DB", "NOT SET"),
                 "openai_key": "SET" if os.getenv("OPENAPI_KEY") else "NOT SET",
                 "postgres_db_url": os.getenv("POSTGRES_DB_URL", "NOT SET")
             }

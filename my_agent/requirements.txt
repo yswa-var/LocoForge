@@ -4,4 +4,4 @@ langchain_core
 langchain_google_genai
 openai
 python-dotenv
-psycopg2-binary 
+asyncpg>=0.29.0
