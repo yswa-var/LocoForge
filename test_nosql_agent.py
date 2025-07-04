@@ -54,15 +54,15 @@ def test_nosql_agent():
         
     except Exception as e:
         print(f"❌ Failed to create NoSQL agent: {e}")
-        print("Make sure MONGO_DB and OPENAI_API_KEY are set in your .env file")
+        print("Make sure MONGO_DB and OPENAPI_KEY are set in your .env file")
     finally:
         if 'agent' in locals():
             agent.close_connection()
 
 if __name__ == "__main__":
     # Check environment variables
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ Error: OPENAI_API_KEY not found in environment variables")
+    if not os.getenv("OPENAPI_KEY"):
+        print("❌ Error: OPENAPI_KEY not found in environment variables")
         exit(1)
     
     if not os.getenv("MONGO_DB"):

@@ -1,0 +1,19 @@
+# Environment Variables Template for LocoForge Orchestrator
+# Copy this file to .env and fill in your actual values
+
+# OpenAI API Configuration
+# Get your API key from: https://platform.openai.com/api-keys
+OPENAPI_KEY=your_openai_api_key_here
+# Alternative environment variable name
+OPENAI_API_KEY=your_openai_api_key_here
+
+# PostgreSQL Database Configuration
+# Format: postgresql://username:password@host:port/database
+POSTGRES_DB_URL=postgresql://neondb_owner:npg_Td9jOSCDHrh1@ep-fragrant-snow-a8via4xi-pooler.eastus2.azure.neon.tech/employees?sslmode=require&channel_binding=require
+
+# MongoDB Configuration
+# Format: mongodb://username:password@host:port/database
+MONGO_DB=mongodb://localhost:27017/
+
+# Optional: Custom MongoDB connection string for production
+# MONGO_DB=mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority 

@@ -43,7 +43,7 @@ pip install pymongo langchain-openai python-dotenv
 2. **Set Environment Variables**:
 Create a `.env` file with:
 ```env
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAPI_KEY=your_OPENAPI_KEY_here
 MONGO_DB=mongodb://localhost:27017/
 ```
 
@@ -174,7 +174,7 @@ The agent handles various error scenarios:
 ## Configuration
 
 ### Environment Variables
-- `OPENAI_API_KEY`: Your OpenAI API key
+- `OPENAPI_KEY`: Your OpenAI API key
 - `MONGO_DB`: MongoDB connection string
 
 ### Model Configuration

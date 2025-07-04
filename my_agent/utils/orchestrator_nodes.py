@@ -3,8 +3,9 @@ Graph workflow nodes for the Hybrid Orchestrator
 """
 
 from typing import Dict, Any
-from my_agent.utils.state import OrchestratorState, QueryDomain
-from my_agent.utils.orchestrator_agent import HybridOrchestrator
+from my_agent.utils.state import OrchestratorState, QueryDomain, QueryIntent, QueryComplexity
+from my_agent.utils.orchestrator_agent import HybridOrchestrator, SQL_AVAILABLE
+from my_agent.utils.data_engineer_agent import DataEngineerAgent
 import json
 import os
 import logging
@@ -19,72 +20,116 @@ load_dotenv()
 
 # Initialize orchestrator with lazy loading
 _orchestrator_instance = None
+_data_engineer_instance = None
 
 def get_orchestrator():
     """Get or create orchestrator instance with proper error handling"""
     global _orchestrator_instance
     
-    if _orchestrator_instance is None:
+    # Use cached instance if available and SQL agent is working
+    if _orchestrator_instance is not None:
         try:
-            logger.info("🔄 Initializing orchestrator for LangGraph Studio...")
-            
-            # Force reload environment variables
-            load_dotenv()
-            
-            # Check environment before initialization
-            mongo_db = "mongodb://localhost:27017/"
-            openai_key = os.getenv("OPENAI_API_KEY")
-            sql_db = os.getenv("SQL_DB")
-            
-            logger.info(f"LangGraph Studio Environment Check:")
-            logger.info(f"  MONGO_DB: {'SET' if mongo_db else 'NOT SET'}")
-            logger.info(f"  OPENAI_API_KEY: {'SET' if openai_key else 'NOT SET'}")
-            logger.info(f"  SQL_DB: {'SET' if sql_db else 'NOT SET'}")
-            
-            _orchestrator_instance = HybridOrchestrator()
-            
-            # Check if agents are properly initialized
-            status = _orchestrator_instance.check_agent_status()
-            
-            if not status['nosql_agent']['initialized']:
-                logger.warning(f"⚠️  NoSQL agent not initialized: {status['nosql_agent'].get('error', 'Unknown error')}")
-                logger.warning(f"   Available: {status['nosql_agent']['available']}")
-                logger.warning(f"   Environment: {status['environment']}")
-            else:
-                logger.info("✅ NoSQL agent initialized successfully")
-                
-            if not status['sql_agent']['initialized']:
-                logger.warning(f"⚠️  SQL agent not initialized: {status['sql_agent'].get('error', 'Unknown error')}")
-                logger.warning(f"   Available: {status['sql_agent']['available']}")
-            else:
-                logger.info("✅ SQL agent initialized successfully")
-                
+            # Check if SQL agent is still working
+            from my_agent.utils.sql_agent_manager import get_sql_agent_status
+            sql_status = get_sql_agent_status()
+            if sql_status.get("initialized", False):
+                logger.info("🔄 Using cached orchestrator instance")
+                return _orchestrator_instance
         except Exception as e:
-            logger.error(f"❌ Failed to initialize orchestrator: {e}")
+            logger.warning(f"Could not check SQL agent status: {e}")
+    
+    # Create a fresh instance
+    try:
+        logger.info("🔄 Creating fresh orchestrator instance for LangGraph Studio...")
+        
+        # Force reload environment variables
+        load_dotenv()
+        
+        # Create orchestrator - let agents handle their own initialization
+        orchestrator = HybridOrchestrator()
+        
+        # Log initialization status
+        status = orchestrator.check_agent_status()
+        
+        if status['sql_agent']['initialized']:
+            logger.info("✅ SQL agent initialized successfully")
+        else:
+            logger.warning(f"⚠️  SQL agent not initialized: {status['sql_agent'].get('error', 'Unknown error')}")
+            
+        if status['nosql_agent']['initialized']:
+            logger.info("✅ NoSQL agent initialized successfully")
+        else:
+            logger.warning(f"⚠️  NoSQL agent not initialized: {status['nosql_agent'].get('error', 'Unknown error')}")
+        
+        # Cache the successful instance
+        _orchestrator_instance = orchestrator
+        return orchestrator
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize orchestrator: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # If we have a cached instance, try to use it
+        if _orchestrator_instance is not None:
+            logger.info("🔄 Using cached orchestrator instance")
+            return _orchestrator_instance
+        
+        # Create a minimal orchestrator instance for error handling
+        logger.info("🔄 Creating minimal orchestrator instance")
+        _orchestrator_instance = HybridOrchestrator()
+        return _orchestrator_instance
+
+def get_data_engineer():
+    """Get or create data engineer agent instance"""
+    global _data_engineer_instance
+    
+    if _data_engineer_instance is None:
+        try:
+            logger.info("🔄 Initializing Data Engineer Agent...")
+            _data_engineer_instance = DataEngineerAgent()
+            logger.info("✅ Data Engineer Agent initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize Data Engineer Agent: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            # Create a minimal orchestrator instance for error handling
-            _orchestrator_instance = HybridOrchestrator()
+            # Create a minimal instance for error handling
+            _data_engineer_instance = DataEngineerAgent()
     
-    return _orchestrator_instance
+    return _data_engineer_instance
 
 def reset_orchestrator():
     """Force re-initialization of the orchestrator (useful for LangGraph Studio)"""
-    global _orchestrator_instance
+    global _orchestrator_instance, _data_engineer_instance
     _orchestrator_instance = None
-    logger.info("🔄 Orchestrator reset - will re-initialize on next use")
+    _data_engineer_instance = None
+    logger.info("🔄 Orchestrator and Data Engineer reset - will re-initialize on next use")
     return get_orchestrator()
 
 def check_orchestrator_status():
     """Check the status of the orchestrator and its agents"""
     try:
         orchestrator = get_orchestrator()
-        return orchestrator.check_agent_status()
+        data_engineer = get_data_engineer()
+        
+        # Get basic status
+        status = {
+            **orchestrator.check_agent_status(),
+            "data_engineer_available": data_engineer is not None
+        }
+        
+        # Add detailed SQL agent diagnostics
+        if data_engineer:
+            sql_diagnosis = data_engineer._diagnose_sql_agent_issue()
+            status["sql_agent_diagnosis"] = sql_diagnosis
+        
+        return status
     except Exception as e:
         logger.error(f"Failed to check orchestrator status: {e}")
         return {
             "error": f"Failed to check orchestrator status: {e}",
-            "orchestrator_available": False
+            "orchestrator_available": False,
+            "data_engineer_available": False
         }
 
 def initialize_state(state: OrchestratorState) -> OrchestratorState:
@@ -92,18 +137,43 @@ def initialize_state(state: OrchestratorState) -> OrchestratorState:
     # Get the user query from the last message
     if state.get("messages") and len(state["messages"]) > 0:
         last_message = state["messages"][-1]
+        # Always extract string from dict if needed
         if hasattr(last_message, 'content'):
-            state["current_query"] = last_message.content
+            content = last_message.content
+        elif isinstance(last_message, dict) and 'content' in last_message:
+            content = last_message['content']
         else:
-            state["current_query"] = str(last_message)
+            content = str(last_message)
+        # If content is a dict, extract again
+        if isinstance(content, dict) and 'content' in content:
+            state["current_query"] = content['content']
+        else:
+            state["current_query"] = content
     else:
-        state["current_query"] = ""
+        # If current_query is already set but might be a string representation of a dict
+        current_query = state.get("current_query", "")
+        if current_query and current_query.startswith("{") and current_query.endswith("}"):
+            try:
+                import ast
+                # Try to safely evaluate the string representation
+                query_dict = ast.literal_eval(current_query)
+                if isinstance(query_dict, dict) and 'content' in query_dict:
+                    state["current_query"] = query_dict['content']
+                else:
+                    state["current_query"] = str(query_dict)
+            except:
+                # If parsing fails, keep as is
+                pass
+        elif not current_query:
+            state["current_query"] = ""
     
     # Initialize other fields if missing
     if "query_domain" not in state:
         state["query_domain"] = None
     if "query_intent" not in state:
         state["query_intent"] = None
+    if "query_complexity" not in state:
+        state["query_complexity"] = None
     if "sub_queries" not in state:
         state["sub_queries"] = {}
     if "sql_results" not in state:
@@ -118,29 +188,212 @@ def initialize_state(state: OrchestratorState) -> OrchestratorState:
         state["execution_path"] = []
     if "error_message" not in state:
         state["error_message"] = None
+    if "clarification_suggestions" not in state:
+        state["clarification_suggestions"] = None
+    if "data_engineer_response" not in state:
+        state["data_engineer_response"] = None
     
     return state
 
 def classify_query_node(state: OrchestratorState) -> OrchestratorState:
-    """Node: Classify query domain and intent"""
+    """Node: Classify query domain and intent with enhanced edge case handling"""
     # Initialize state if needed
     state = initialize_state(state)
     
     query = state["current_query"]
+    # Always extract string from dict if needed
+    if isinstance(query, dict) and 'content' in query:
+        query = query['content']
+        state["current_query"] = query
     
     if not query:
         state["error_message"] = "No query provided"
         return state
     
-    # Classify the query
+    # First, check if this is a direct SQL or NoSQL query
+    if is_direct_sql_query(query):
+        # Route directly to SQL agent
+        state["query_domain"] = QueryDomain.EMPLOYEE
+        state["query_intent"] = QueryIntent.SELECT
+        state["query_complexity"] = QueryComplexity.MEDIUM
+        state["execution_path"].append("classify_query")
+        return state
+    
+    if is_direct_nosql_query(query):
+        # Route directly to NoSQL agent
+        state["query_domain"] = QueryDomain.MOVIES
+        state["query_intent"] = QueryIntent.SELECT
+        state["query_complexity"] = QueryComplexity.MEDIUM
+        state["execution_path"].append("classify_query")
+        return state
+    
+    # For non-direct queries, first try normal classification
     domain, intent = get_orchestrator().classify_intent(query)
     
-    # Update state
-    state["query_domain"] = domain
-    state["query_intent"] = intent
+    # Check if the classification is confident enough
+    if domain != QueryDomain.UNKNOWN:
+        # Normal classification worked, use it
+        state["query_domain"] = domain
+        state["query_intent"] = intent
+        state["query_complexity"] = QueryComplexity.SIMPLE
+        state["execution_path"].append("classify_query")
+        return state
+    
+    # If normal classification failed, try keyword-based fallback classification
+    fallback_domain = _keyword_based_fallback_classification(query)
+    if fallback_domain != QueryDomain.UNKNOWN:
+        state["query_domain"] = fallback_domain
+        state["query_intent"] = QueryIntent.SELECT
+        state["query_complexity"] = QueryComplexity.SIMPLE
+        state["execution_path"].append("classify_query")
+        return state
+    
+    # If keyword fallback also failed, then use Data Engineer Agent for analysis
+    data_engineer = get_data_engineer()
+    analysis = data_engineer.analyze_query(query)
+    
+    # Update state with analysis results
+    state["query_complexity"] = QueryComplexity(analysis.get("complexity_level", "simple"))
+    
+    # Handle different query types based on analysis
+    query_type = analysis.get("query_type", "clear")
+    
+    if query_type in ["ambiguous", "non_domain", "technical"]:
+        # Route to Data Engineer Agent for handling
+        state["query_domain"] = QueryDomain.UNCLEAR
+        state["query_intent"] = QueryIntent.CLARIFY
+        
+        # Handle specific query types with Data Engineer Agent
+        if query_type == "ambiguous":
+            response = data_engineer.handle_ambiguous_query(query, analysis)
+            state["data_engineer_response"] = response
+            # Also generate clarification suggestions for additional help
+            suggestions = data_engineer.provide_clarification_suggestions(query, analysis)
+            state["clarification_suggestions"] = suggestions
+        elif query_type == "technical":
+            response = data_engineer.handle_technical_query(query)
+            state["data_engineer_response"] = response
+        elif query_type == "non_domain":
+            response = data_engineer.handle_non_domain_query(query)
+            state["data_engineer_response"] = response
+        
+        state["execution_path"].append("classify_query")
+        return state
+    
+    # For clear queries from Data Engineer analysis, use the suggested domain
+    suggested_domain = analysis.get("suggested_domain", "unknown")
+    if suggested_domain in ["employee", "employees"]:
+        state["query_domain"] = QueryDomain.EMPLOYEE
+    elif suggested_domain in ["movies", "movie"]:
+        state["query_domain"] = QueryDomain.MOVIES
+    elif suggested_domain == "hybrid":
+        state["query_domain"] = QueryDomain.HYBRID
+    else:
+        state["query_domain"] = QueryDomain.UNKNOWN
+    
+    state["query_intent"] = QueryIntent.SELECT
     state["execution_path"].append("classify_query")
     
     return state
+
+def _keyword_based_fallback_classification(query: str) -> QueryDomain:
+    """Fallback keyword-based classification when LLM classification fails"""
+    query_lower = query.lower()
+    
+    # Employee-related keywords
+    employee_keywords = [
+        'employee', 'employees', 'staff', 'department', 'departments', 
+        'salary', 'salaries', 'manager', 'managers', 'hire', 'hired',
+        'attendance', 'project', 'projects', 'position', 'positions',
+        'budget', 'performance', 'title', 'titles', 'work', 'working'
+    ]
+    
+    # Movie-related keywords
+    movie_keywords = [
+        'movie', 'movies', 'rating', 'ratings', 'comment', 'comments',
+        'theater', 'theaters', 'cast', 'director', 'directors', 'genre',
+        'genres', 'year', 'award', 'awards', 'film', 'films', 'cinema'
+    ]
+    
+    # Count keyword matches
+    employee_matches = sum(1 for keyword in employee_keywords if keyword in query_lower)
+    movie_matches = sum(1 for keyword in movie_keywords if keyword in query_lower)
+    
+    # Determine domain based on keyword matches
+    if employee_matches > 0 and movie_matches > 0:
+        return QueryDomain.HYBRID
+    elif employee_matches > 0:
+        return QueryDomain.EMPLOYEE
+    elif movie_matches > 0:
+        return QueryDomain.MOVIES
+    else:
+        return QueryDomain.UNKNOWN
+
+def is_direct_sql_query(query: str) -> bool:
+    """Check if the query is a direct SQL command"""
+    # Clean the query and convert to uppercase for pattern matching
+    clean_query = query.strip().upper()
+    
+    # Common SQL keywords that indicate a direct SQL query
+    sql_keywords = [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER',
+        'SHOW', 'DESCRIBE', 'EXPLAIN', 'USE', 'GRANT', 'REVOKE'
+    ]
+    
+    # Check if query starts with SQL keywords
+    for keyword in sql_keywords:
+        if clean_query.startswith(keyword):
+            return True
+    
+    # Check for common SQL patterns, but be more specific to avoid false positives
+    # Only consider it SQL if it has both a SELECT and FROM pattern
+    has_select = clean_query.startswith('SELECT')
+    has_from = any(pattern in clean_query for pattern in [' FROM ', 'FROM '])
+    
+    if has_select and has_from:
+        return True
+    
+    # For other SQL commands, check if they start with SQL keywords
+    for keyword in sql_keywords:
+        if clean_query.startswith(keyword):
+            return True
+    
+    # Additional check: if it contains SQL patterns but is natural language, don't classify as SQL
+    # Look for natural language indicators
+    natural_language_indicators = [
+        'SHOW ME', 'TELL ME', 'FIND', 'LIST', 'GET', 'DISPLAY', 'PRINT',
+        'WHAT', 'HOW', 'WHEN', 'WHERE', 'WHY', 'WHO', 'WHICH'
+    ]
+    
+    # If it starts with natural language indicators, it's not a direct SQL query
+    for indicator in natural_language_indicators:
+        if clean_query.startswith(indicator):
+            return False
+    
+    return False
+
+def is_direct_nosql_query(query: str) -> bool:
+    """Check if the query is a direct NoSQL/MongoDB command"""
+    # Clean the query and convert to lowercase for pattern matching
+    clean_query = query.strip().lower()
+    
+    # MongoDB/NoSQL patterns
+    nosql_patterns = [
+        'db.', 'collection.', 'find(', 'findone(', 'aggregate(',
+        'insert(', 'update(', 'delete(', 'remove(',
+        '{$', '{$match', '{$group', '{$sort', '{$project',
+        '{$lookup', '{$unwind', '{$limit', '{$skip'
+    ]
+    
+    for pattern in nosql_patterns:
+        if pattern in clean_query:
+            return True
+    
+    # Check for JSON-like structures that might be MongoDB queries
+    if ('{' in clean_query and '}' in clean_query) and any(op in clean_query for op in ['$', 'find', 'aggregate']):
+        return True
+    
+    return False
 
 def decompose_query_node(state: OrchestratorState) -> OrchestratorState:
     """Node: Decompose complex queries into sub-queries"""
@@ -154,8 +407,33 @@ def decompose_query_node(state: OrchestratorState) -> OrchestratorState:
         state["error_message"] = "Missing query or domain classification"
         return state
     
+    # Skip decomposition for unclear queries (handled by Data Engineer)
+    if domain == QueryDomain.UNCLEAR:
+        state["sub_queries"] = {"unclear": query}
+        state["execution_path"].append("decompose_query")
+        return state
+    
+    # For direct SQL queries, pass through without decomposition
+    if is_direct_sql_query(query):
+        state["sub_queries"] = {"employee": query}
+        state["execution_path"].append("decompose_query")
+        return state
+    
+    # For direct NoSQL queries, pass through without decomposition
+    if is_direct_nosql_query(query):
+        state["sub_queries"] = {"movies": query}
+        state["execution_path"].append("decompose_query")
+        return state
+    
+    # Debug logging
+    logger.info(f"[DEBUG] Decomposing query: '{query}' for domain: {domain}")
+    
     # Decompose query
     sub_queries = get_orchestrator().decompose_query(query, domain)
+    
+    # Debug logging
+    logger.info(f"[DEBUG] Decomposition result: {sub_queries}")
+    
     state["sub_queries"] = sub_queries
     state["execution_path"].append("decompose_query")
     
@@ -179,6 +457,99 @@ def route_to_agents_node(state: OrchestratorState) -> OrchestratorState:
     
     return state
 
+def data_engineer_node(state: OrchestratorState) -> OrchestratorState:
+    """Node: Handle unclear, irrelevant, and technical queries"""
+    # Initialize state if needed
+    state = initialize_state(state)
+    
+    query = state["current_query"]
+    domain = state["query_domain"]
+    data_engineer_response = state.get("data_engineer_response")
+    clarification_suggestions = state.get("clarification_suggestions")
+    
+    # Check if this is a SQL-related query that was routed here because SQL agent is not available
+    try:
+        from my_agent.utils.orchestrator_agent import SQL_AVAILABLE
+        sql_available = SQL_AVAILABLE
+    except ImportError:
+        sql_available = False
+    
+    # If this is an employee domain query and SQL agent is not available, handle it specially
+    if domain == QueryDomain.EMPLOYEE and not sql_available:
+        logger.info("Handling SQL-related query via Data Engineer Agent (SQL agent not available)")
+        
+        # Use Data Engineer Agent to handle SQL query without agent
+        data_engineer = get_data_engineer()
+        result = data_engineer.handle_sql_query_without_agent(query)
+        
+        # Create combined results for SQL guidance
+        state["combined_results"] = {
+            "success": True,
+            "original_query": query,
+            "query_type": "sql_guidance",
+            "response": result.get("response", "SQL agent is not available"),
+            "execution_result": result.get("execution_result", {
+                "success": False,
+                "error": "SQL agent is not available due to missing dependencies",
+                "row_count": 0,
+                "data": []
+            }),
+            "timestamp": get_orchestrator()._get_timestamp()
+        }
+        
+        state["execution_path"].append("data_engineer_sql_guidance")
+        return state
+    
+    # Use the Data Engineer Agent's response if available
+    if data_engineer_response and data_engineer_response.get("success"):
+        response_content = data_engineer_response["response"]
+    else:
+        # Fallback response with database context
+        response_content = """I understand your query is unclear. Let me help you understand what data is available in our system:
+
+**Available Databases:**
+
+**SQL Database (Employee Management System):**
+- employees: employee information, salaries, departments
+- departments: department details and budgets  
+- projects: project assignments and status
+- attendance: employee attendance records
+
+**NoSQL Database (Sample Mflix - Movies):**
+- movies: movie information, ratings, cast, directors, genres
+- comments: user comments on movies
+- users: user information and accounts
+- sessions: user session data
+- theaters: movie theater locations
+- embedded_movies: movies with vector embeddings for search
+
+You can ask specific questions like:
+- "Show all employees in the IT department"
+- "Find action movies with high ratings"
+- "Find employees with salary above $50,000"
+- "Show movies from 2020"
+
+What specific information would you like to see?"""
+    
+    # Add clarification suggestions if available and not already included in response
+    if clarification_suggestions and "clarification_suggestions" not in response_content.lower():
+        response_content += "\n\nHere are some specific suggestions to help clarify your query:\n"
+        for i, suggestion in enumerate(clarification_suggestions, 1):
+            response_content += f"{i}. {suggestion}\n"
+    
+    # Create combined results for unclear queries
+    state["combined_results"] = {
+        "success": True,
+        "original_query": query,
+        "query_type": "unclear",
+        "response": response_content,
+        "clarification_suggestions": clarification_suggestions,
+        "timestamp": get_orchestrator()._get_timestamp()
+    }
+    
+    state["execution_path"].append("data_engineer")
+    return state
+
 def sql_agent_node(state: OrchestratorState) -> OrchestratorState:
     """Node: Execute SQL queries using SQL agent"""
     # Initialize state if needed
@@ -196,12 +567,47 @@ def sql_agent_node(state: OrchestratorState) -> OrchestratorState:
         sql_query = ""
     
     if sql_query:
-        logger.info(f"[DEBUG] SQL Query sent to agent: {sql_query}")
-        sql_result = get_orchestrator().execute_sql_query(sql_query)
-        logger.info(f"[DEBUG] SQL Agent result: {sql_result}")
-        state["sql_results"] = sql_result
+        try:
+            # Get orchestrator and execute SQL query directly
+            orchestrator = get_orchestrator()
+            
+            # Check if SQL agent is actually available
+            if orchestrator.sql_agent is None:
+                # SQL agent is not available, route to data engineer
+                logger.warning("SQL agent is None in orchestrator, routing to data engineer")
+                data_engineer = get_data_engineer()
+                result = data_engineer.handle_sql_query_without_agent(sql_query)
+                
+                state["combined_results"] = {
+                    "success": True,
+                    "original_query": state["current_query"],
+                    "query_type": "sql_guidance",
+                    "response": result.get("response", "SQL agent is not available"),
+                    "execution_result": result.get("execution_result", {
+                        "success": False,
+                        "error": "SQL agent is not available due to missing dependencies",
+                        "row_count": 0,
+                        "data": []
+                    }),
+                    "timestamp": get_orchestrator()._get_timestamp()
+                }
+                
+                state["execution_path"].append("sql_agent_fallback_to_data_engineer")
+                return state
+            
+            # SQL agent is available, execute the query
+            state["sql_results"] = orchestrator.execute_sql_query(sql_query)
+        except Exception as e:
+            state["sql_results"] = {
+                "success": False, 
+                "error": f"SQL execution failed: {str(e)}",
+                "execution_result": {"success": False, "error": str(e)}
+            }
     else:
-        state["sql_results"] = {"success": False, "error": "No SQL query provided"}
+        state["sql_results"] = {
+            "success": False, 
+            "error": "No SQL query provided"
+        }
     
     state["execution_path"].append("sql_agent")
     return state
@@ -215,8 +621,8 @@ def nosql_agent_node(state: OrchestratorState) -> OrchestratorState:
     domain = state["query_domain"]
     
     # Determine NoSQL query based on domain
-    if domain == QueryDomain.WAREHOUSE:
-        nosql_query = sub_queries.get("warehouse", state["current_query"])
+    if domain == QueryDomain.MOVIES:
+        nosql_query = sub_queries.get("movies", state["current_query"])
     elif domain == QueryDomain.HYBRID:
         nosql_query = sub_queries.get("nosql", "")
     else:
@@ -244,8 +650,13 @@ def aggregate_results_node(state: OrchestratorState) -> OrchestratorState:
     
     if domain == QueryDomain.HYBRID:
         # Combine results from both agents
-        sql_results = state.get("sql_results", {"success": False, "data": []})
-        nosql_results = state.get("nosql_results", {"success": False, "data": []})
+        sql_results = state.get("sql_results")
+        if sql_results is None:
+            sql_results = {"success": False, "data": []}
+        
+        nosql_results = state.get("nosql_results")
+        if nosql_results is None:
+            nosql_results = {"success": False, "data": []}
         
         combined_results = get_orchestrator().aggregate_results(
             sql_results, nosql_results, state["current_query"]
@@ -254,7 +665,10 @@ def aggregate_results_node(state: OrchestratorState) -> OrchestratorState:
         
     elif domain == QueryDomain.EMPLOYEE:
         # Format SQL results directly
-        sql_results = state.get("sql_results", {})
+        sql_results = state.get("sql_results")
+        if sql_results is None:
+            sql_results = {}
+        
         sql_exec = sql_results.get("execution_result", {})
         if sql_results:
             state["combined_results"] = {
@@ -279,9 +693,12 @@ def aggregate_results_node(state: OrchestratorState) -> OrchestratorState:
                 "original_query": state["current_query"]
             }
         
-    elif domain == QueryDomain.WAREHOUSE:
+    elif domain == QueryDomain.MOVIES:
         # Format NoSQL results directly
-        nosql_results = state.get("nosql_results", {})
+        nosql_results = state.get("nosql_results")
+        if nosql_results is None:
+            nosql_results = {}
+        
         if nosql_results:
             execution_result = nosql_results.get("execution_result", {})
             state["combined_results"] = {
@@ -306,6 +723,17 @@ def aggregate_results_node(state: OrchestratorState) -> OrchestratorState:
                 "original_query": state["current_query"]
             }
     
+    elif domain == QueryDomain.UNCLEAR:
+        # For unclear queries, the combined_results should already be set by data_engineer_node
+        # Just ensure it exists
+        if "combined_results" not in state or state["combined_results"] is None:
+            state["combined_results"] = {
+                "success": False,
+                "error": "Data Engineer Agent response not available",
+                "original_query": state["current_query"],
+                "timestamp": get_orchestrator()._get_timestamp()
+            }
+    
     state["execution_path"].append("aggregate_results")
     return state
 
@@ -319,7 +747,7 @@ def update_context_node(state: OrchestratorState) -> OrchestratorState:
     return state
 
 def format_response_node(state: OrchestratorState) -> OrchestratorState:
-    """Node: Format final response for user"""
+    """Node: Format final response for user in professional markdown format"""
     # Initialize state if needed
     state = initialize_state(state)
     
@@ -330,26 +758,160 @@ def format_response_node(state: OrchestratorState) -> OrchestratorState:
         combined_results = {}
     
     if combined_results.get("success", False):
-        # Return successful results as JSON
-        response_text = json.dumps(combined_results, indent=2, default=str)
+        # Format successful results in professional markdown
+        response_text = format_success_response_markdown(combined_results, state.get("current_query", ""))
     else:
-        # Format error response
+        # Format error response in markdown
         error_msg = combined_results.get("error", "Unknown error occurred")
-        error_response = {
-            "success": False,
-            "error": error_msg,
-            "original_query": state.get("current_query", ""),
-            "timestamp": get_orchestrator()._get_timestamp()
-        }
-        response_text = json.dumps(error_response, indent=2, default=str)
+        response_text = format_error_response_markdown(error_msg, state.get("current_query", ""))
         state["error_message"] = error_msg
     
-    # Add AI response to messages
+    # Add AI response to messages using proper LangGraph pattern
     from langchain_core.messages import AIMessage
-    state["messages"].append(AIMessage(content=response_text))
+    # Create a new message to add to the state
+    ai_message = AIMessage(content=response_text)
+    
+    # Return the message to be added to the messages list
+    # LangGraph will handle the addition through the Annotated type
+    state["messages"] = [ai_message]
     
     state["execution_path"].append("format_response")
     return state
+
+def format_success_response_markdown(results: dict, original_query: str) -> str:
+    """Format successful results in professional markdown"""
+    
+    # Start with header
+    markdown = f"# Query Results\n\n"
+    markdown += f"**Original Query:** {original_query}\n\n"
+    
+    # Add timestamp if available
+    if "timestamp" in results:
+        markdown += f"**Timestamp:** {results['timestamp']}\n\n"
+    
+    # Handle different data sources
+    if "data_sources" in results:
+        markdown += f"**Data Sources:** {', '.join(results['data_sources'])}\n\n"
+    
+    # Handle SQL data
+    if "sql_data" in results:
+        sql_data = results["sql_data"]
+        if sql_data.get("success", False):
+            markdown += "## SQL Database Results\n\n"
+            
+            # Add SQL query in code block
+            if "query" in sql_data and sql_data["query"] != "N/A":
+                markdown += "**Executed SQL Query:**\n"
+                markdown += f"```sql\n{sql_data['query']}\n```\n\n"
+            
+            # Add row count
+            if "row_count" in sql_data:
+                markdown += f"**Rows Returned:** {sql_data['row_count']}\n\n"
+            
+            # Add data in JSON code block
+            if "data" in sql_data and sql_data["data"]:
+                markdown += "**Results:**\n"
+                markdown += f"```json\n{json.dumps(sql_data['data'], indent=2, default=str)}\n```\n\n"
+            else:
+                markdown += "**Results:** No data returned\n\n"
+        else:
+            markdown += "## SQL Database Results\n\n"
+            markdown += f"❌ **Error:** {sql_data.get('error', 'Unknown SQL error')}\n\n"
+    
+    # Handle NoSQL data
+    if "nosql_data" in results:
+        nosql_data = results["nosql_data"]
+        if nosql_data.get("success", False):
+            markdown += "## NoSQL Database Results\n\n"
+            
+            # Add MongoDB query in code block
+            if "query" in nosql_data and nosql_data["query"] != "N/A":
+                markdown += "**Executed MongoDB Query:**\n"
+                markdown += f"```javascript\n{nosql_data['query']}\n```\n\n"
+            
+            # Add row count
+            if "row_count" in nosql_data:
+                markdown += f"**Documents Returned:** {nosql_data['row_count']}\n\n"
+            
+            # Add data in JSON code block
+            if "data" in nosql_data and nosql_data["data"]:
+                markdown += "**Results:**\n"
+                markdown += f"```json\n{json.dumps(nosql_data['data'], indent=2, default=str)}\n```\n\n"
+            else:
+                markdown += "**Results:** No data returned\n\n"
+        else:
+            markdown += "## NoSQL Database Results\n\n"
+            markdown += f"❌ **Error:** {nosql_data.get('error', 'Unknown NoSQL error')}\n\n"
+    
+    # Handle Data Engineer responses (for unclear queries)
+    if "query_type" in results and results["query_type"] == "unclear":
+        markdown += "## Response\n\n"
+        if "response" in results:
+            markdown += f"{results['response']}\n\n"
+        
+        # Add clarification suggestions if available
+        if "clarification_suggestions" in results and results["clarification_suggestions"]:
+            markdown += "### Clarification Suggestions\n\n"
+            for i, suggestion in enumerate(results["clarification_suggestions"], 1):
+                markdown += f"{i}. {suggestion}\n"
+            markdown += "\n"
+    
+    # Handle SQL guidance responses (when SQL agent is not available)
+    if "query_type" in results and results["query_type"] == "sql_guidance":
+        markdown += "## SQL Query Guidance\n\n"
+        if "response" in results:
+            markdown += f"{results['response']}\n\n"
+        
+        # Add execution result info
+        execution_result = results.get("execution_result", {})
+        if not execution_result.get("success", False):
+            markdown += f"**Status:** ❌ SQL Agent Unavailable\n\n"
+            markdown += f"**Reason:** {execution_result.get('error', 'Unknown error')}\n\n"
+            markdown += "**Solution:** Install the required dependency: `pip install psycopg2-binary`\n\n"
+    
+    # Handle hybrid results (combined from multiple sources)
+    if "combined_data" in results:
+        markdown += "## Combined Results\n\n"
+        markdown += f"```json\n{json.dumps(results['combined_data'], indent=2, default=str)}\n```\n\n"
+    
+    # Add execution summary if available
+    if "execution_path" in results:
+        markdown += "## Execution Summary\n\n"
+        markdown += f"**Processing Path:** {' → '.join(results['execution_path'])}\n\n"
+    
+    # Add raw data for debugging (collapsible)
+    markdown += "<details>\n<summary>📋 Raw Response Data</summary>\n\n"
+    markdown += f"```json\n{json.dumps(results, indent=2, default=str)}\n```\n\n"
+    markdown += "</details>\n"
+    
+    return markdown
+
+def format_error_response_markdown(error_msg: str, original_query: str) -> str:
+    """Format error response in professional markdown"""
+    
+    markdown = f"# Query Error\n\n"
+    markdown += f"**Original Query:** {original_query}\n\n"
+    markdown += f"❌ **Error:** {error_msg}\n\n"
+    
+    # Add helpful suggestions
+    markdown += "## Suggestions\n\n"
+    markdown += "1. **Check your query syntax** - Ensure your question is clear and specific\n"
+    markdown += "2. **Try rephrasing** - Use different words to describe what you're looking for\n"
+    markdown += "3. **Be specific** - Instead of 'show everything', try 'show all employees' or 'list all products'\n"
+    markdown += "4. **Check available data** - Ask about what data is available in the system\n\n"
+    
+    # Add example queries
+    markdown += "## Example Queries\n\n"
+    markdown += "- \"Show all employees in the IT department\"\n"
+    markdown += "- \"List products with stock less than 10\"\n"
+    markdown += "- \"Find employees with salary above $50,000\"\n"
+    markdown += "- \"Show project completion status\"\n"
+    markdown += "- \"What data is available in the system?\"\n\n"
+    
+    # Add timestamp
+    markdown += f"**Timestamp:** {get_orchestrator()._get_timestamp()}\n"
+    
+    return markdown
 
 def route_decision(state: OrchestratorState) -> str:
     """Decision function for routing based on domain"""
@@ -358,12 +920,52 @@ def route_decision(state: OrchestratorState) -> str:
     
     domain = state["query_domain"]
     
+    # Check if SQL agent is available using the SQL agent manager
+    sql_available = False
+    try:
+        from my_agent.utils.sql_agent_manager import get_sql_agent_status
+        sql_status = get_sql_agent_status()
+        sql_available = sql_status.get("initialized", False)
+    except Exception as e:
+        logger.warning(f"Could not check SQL agent availability: {e}")
+        sql_available = False
+    
+    # Check if NoSQL agent is available
+    nosql_available = False
+    try:
+        orchestrator = get_orchestrator()
+        nosql_available = orchestrator.nosql_agent is not None
+    except Exception as e:
+        logger.warning(f"Could not check NoSQL agent availability: {e}")
+        nosql_available = False
+    
     if domain == QueryDomain.EMPLOYEE:
-        return "sql_only"
-    elif domain == QueryDomain.WAREHOUSE:
-        return "nosql_only"
+        if sql_available:
+            return "sql_only"
+        else:
+            # If SQL agent is not available, route to data engineer for alternative handling
+            logger.warning("SQL agent not available, routing employee query to data engineer")
+            return "data_engineer"
+    elif domain == QueryDomain.MOVIES:
+        if nosql_available:
+            return "nosql_only"
+        else:
+            # If NoSQL agent is not available, route to data engineer for alternative handling
+            logger.warning("NoSQL agent not available, routing movies query to data engineer")
+            return "data_engineer"
     elif domain == QueryDomain.HYBRID:
-        return "both_agents"
+        if sql_available and nosql_available:
+            return "both_agents"
+        elif sql_available:
+            return "sql_only"
+        elif nosql_available:
+            return "nosql_only"
+        else:
+            # If neither agent is available, route to data engineer
+            logger.warning("Neither SQL nor NoSQL agents available, routing hybrid query to data engineer")
+            return "data_engineer"
+    elif domain == QueryDomain.UNCLEAR:
+        return "data_engineer"  # Route unclear queries to Data Engineer Agent
     else:
         return "error_handling"
 

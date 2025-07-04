@@ -72,7 +72,7 @@ Example .env file:
 
 MY_ENV_VAR_1=foo
 MY_ENV_VAR_2=bar
-OPENAI_API_KEY=key
+OPENAPI_KEY=key
 
 Example file directory:
 

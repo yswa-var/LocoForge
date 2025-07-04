@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 NoSQL Query Executor using OpenAI
-Executes MongoDB queries against the grocery warehouse database
+Executes MongoDB queries against the sample_mflix database
 Returns structured JSON output with query and results
 """
 
@@ -10,7 +10,8 @@ import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
-from pymongo import MongoClient
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -18,7 +19,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 load_dotenv()
 
 class NoSQLQueryExecutor:
-    """NoSQL Query Executor for Grocery Warehouse Database"""
+    """NoSQL Query Executor for Sample Mflix Database"""
     
     def __init__(self, connection_string: str = None):
         """
@@ -27,185 +28,126 @@ class NoSQLQueryExecutor:
         Args:
             connection_string: MongoDB connection string (defaults to MONGO_DB from .env)
         """
-        self.connection_string = connection_string or "mongodb://localhost:27017/"
+        self.connection_string = connection_string or os.getenv("MONGO_DB")
         if not self.connection_string:
             raise ValueError("MongoDB connection string not found. Set MONGO_DB in .env file")
         
-        self.client = MongoClient(self.connection_string)
-        self.db_name = "grocery_warehouse"
+        # Create a new client and connect to the server
+        try:
+            # Use the recommended MongoDB Atlas connection method
+            self.client = MongoClient(
+                self.connection_string, 
+                server_api=ServerApi('1')
+            )
+            
+            # Send a ping to confirm a successful connection
+            self.client.admin.command('ping')
+            print("Pinged your deployment. You successfully connected to MongoDB!")
+            
+        except Exception as e:
+            print(f"Failed to connect to MongoDB: {e}")
+            print("Trying alternative connection method...")
+            
+            # Try alternative connection with minimal settings
+            try:
+                self.client = MongoClient(self.connection_string)
+                self.client.admin.command('ping')
+                print("Successfully connected with alternative method!")
+            except Exception as e2:
+                print(f"Alternative connection also failed: {e2}")
+                raise e2
+        
+        self.db_name = "sample_mflix"
         self.db = self.client[self.db_name]
         
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+            api_key=os.getenv("OPENAPI_KEY")
         )
         
         # Database schema context
         self.db_context = self._build_database_context()
         
     def _build_database_context(self) -> str:
-        """Build comprehensive database context including schema and relationships"""
+        """Build concise database context for sample_mflix schema (movies, comments, users, sessions, theaters)"""
         context = """
-MONGODB DATABASE SCHEMA FOR GROCERY WAREHOUSE SYSTEM:
+MONGODB DATABASE SCHEMA FOR SAMPLE_MFLIX
 
-DATABASE: grocery_warehouse
+DATABASE: sample_mflix
 
-1. PRODUCTS COLLECTION:
-   Document Structure:
-   {
-     "_id": ObjectId,
-     "product_id": "PROD001" (String, unique),
-     "name": "Organic Bananas" (String),
-     "category": "Fruits" (String),
-     "subcategory": "Tropical Fruits" (String),
-     "brand": "FreshHarvest" (String),
-     "description": "Premium organic bananas..." (String),
-     "specifications": {
-       "weight_per_unit": "150g" (String),
-       "origin": "Ecuador" (String),
-       "organic_certified": true (Boolean),
-       "allergens": [] (Array of Strings),
-       "nutritional_info": {
-         "calories_per_100g": 89 (Number),
-         "protein": "1.1g" (String),
-         "carbs": "23g" (String),
-         "fiber": "2.6g" (String)
-       }
-     },
-     "pricing": {
-       "cost_price": 0.45 (Number),
-       "selling_price": 0.89 (Number),
-       "currency": "USD" (String),
-       "bulk_discounts": [
-         {"quantity": 10, "discount_percent": 5} (Object)
-       ]
-     },
-     "supplier_info": {
-       "supplier_id": "SUPP001" (String),
-       "supplier_name": "Tropical Fruits Co." (String),
-       "contact": {
-         "email": "orders@tropicalfruits.com" (String),
-         "phone": "+1-555-0123" (String)
-       },
-       "lead_time_days": 3 (Number)
-     },
-     "created_at": ISODate,
-     "updated_at": ISODate,
-     "active": true (Boolean)
-   }
+1. MOVIES COLLECTION:
+   - _id: ObjectId
+   - title: String
+   - year: Number
+   - genres: Array[String]
+   - cast: Array[String]
+   - directors: Array[String]
+   - writers: Array[String]
+   - plot: String
+   - fullplot: String
+   - runtime: Number
+   - released: ISODate
+   - countries: Array[String]
+   - languages: Array[String]
+   - poster: String (URL)
+   - type: String (e.g., 'movie')
+   - imdb: { rating: Number, votes: Number, id: Number }
+   - tomatoes: { 
+       viewer: { rating: Number, numReviews: Number, meter: Number },
+       critic: { rating: Number, numReviews: Number, meter: Number },
+       fresh: Number, rotten: Number, production: String
+     }
+   - awards: { wins: Number, nominations: Number, text: String }
+   - num_mflix_comments: Number
 
-2. INVENTORY COLLECTION:
-   Document Structure:
-   {
-     "_id": ObjectId,
-     "inventory_id": "INV001" (String, unique),
-     "product_id": "PROD001" (String, references products.product_id),
-     "warehouse_location": {
-       "zone": "A" (String),
-       "aisle": "1" (String),
-       "shelf": "3" (String),
-       "position": "left" (String)
-     },
-     "stock_levels": {
-       "current_stock": 1250 (Number),
-       "minimum_stock": 200 (Number),
-       "maximum_stock": 2000 (Number),
-       "reorder_point": 300 (Number)
-     },
-     "batch_info": [
-       {
-         "batch_id": "BATCH001-001" (String),
-         "quantity": 800 (Number),
-         "expiry_date": ISODate,
-         "supplier_batch": "TB-2024-001" (String),
-         "received_date": ISODate,
-         "quality_status": "excellent" (String)
-       }
-     ],
-     "movement_history": [
-       {
-         "date": ISODate,
-         "type": "in" (String: "in" or "out"),
-         "quantity": 450 (Number),
-         "reference": "PO-2024-001" (String)
-       }
-     ],
-     "last_updated": ISODate
-   }
+2. COMMENTS COLLECTION:
+   - _id: ObjectId
+   - name: String
+   - email: String
+   - movie_id: ObjectId (references movies._id)
+   - text: String
+   - date: ISODate
 
-3. ORDERS COLLECTION:
-   Document Structure:
-   {
-     "_id": ObjectId,
-     "order_id": "ORD001" (String, unique),
-     "customer_info": {
-       "customer_id": "CUST001" (String),
-       "name": "Fresh Market Chain" (String),
-       "type": "retail_chain" (String),
-       "contact": {
-         "email": "orders@freshmarket.com" (String),
-         "phone": "+1-555-1000" (String),
-         "address": {
-           "street": "123 Market St" (String),
-           "city": "Downtown" (String),
-           "state": "CA" (String),
-           "zip": "90210" (String)
-         }
-       },
-       "credit_limit": 50000 (Number),
-       "payment_terms": "net_30" (String)
-     },
-     "order_details": {
-       "order_date": ISODate,
-       "delivery_date": ISODate,
-       "status": "processing" (String),
-       "priority": "high" (String),
-       "delivery_method": "express" (String),
-       "special_instructions": "Keep refrigerated..." (String)
-     },
-     "items": [
-       {
-         "product_id": "PROD001" (String, references products.product_id),
-         "quantity": 500 (Number),
-         "unit_price": 0.89 (Number),
-         "total_price": 445.00 (Number),
-         "discount_applied": 0.05 (Number),
-         "final_price": 422.75 (Number)
-       }
-     ],
-     "pricing": {
-       "subtotal": 803.00 (Number),
-       "tax_rate": 0.085 (Number),
-       "tax_amount": 68.26 (Number),
-       "shipping_cost": 25.00 (Number),
-       "total_amount": 896.26 (Number)
-     },
-     "payment_info": {
-       "method": "credit_card" (String),
-       "status": "pending" (String),
-       "transaction_id": null (String or null)
-     },
-     "created_at": ISODate,
-     "updated_at": ISODate
-   }
+3. USERS COLLECTION:
+   - _id: ObjectId
+   - name: String
+   - email: String
+   - password: String (hashed)
+
+4. SESSIONS COLLECTION:
+   - _id: ObjectId
+   - user_id: String
+   - jwt: String
+
+5. THEATERS COLLECTION:
+   - _id: ObjectId
+   - theaterId: Number
+   - location: {
+       address: { street1: String, city: String, state: String, zipcode: String },
+       geo: { type: String, coordinates: [Number, Number] }
+     }
+
+6. EMBEDDED_MOVIES COLLECTION:
+   - Same as movies but with plot_embedding field for vector search
 
 RELATIONSHIPS:
-- Products -> Inventory: One-to-One (product_id)
-- Products -> Orders: One-to-Many (via items.product_id)
-- Inventory tracks stock for Products
-- Orders contain multiple Products via items array
+- comments.movie_id references movies._id
+- sessions.user_id references users._id
+- users can have multiple comments
 
 COMMON QUERY PATTERNS:
-- $lookup to join collections (products with inventory, orders with products)
-- $match for filtering (stock levels, order status, product category)
-- $group for aggregations (total sales, average prices, stock counts)
-- $unwind for array operations (batch_info, items, movement_history)
-- $project for field selection and calculations
+- $lookup to join comments with movies or users
+- $match for filtering (genre, year, cast, director, etc.)
+- $group for aggregations (average ratings, count by genre, awards)
+- $unwind for array operations (genres, cast, directors)
+- $project for field selection
 - $sort for ordering results
 - $limit for result limiting
 - Date range queries with $gte, $lte
 - Array element matching with $elemMatch
 - Nested object queries using dot notation
+- Geospatial queries on theaters.location.geo
+- Text search on movies using $text
 """
         return context
     
@@ -224,16 +166,22 @@ COMMON QUERY PATTERNS:
             if query.strip().startswith('['):
                 # Aggregation pipeline
                 pipeline = json.loads(query)
-                results = list(self.db.products.aggregate(pipeline))
-                # Try other collections if products doesn't work
-                if not results:
-                    results = list(self.db.inventory.aggregate(pipeline))
-                if not results:
-                    results = list(self.db.orders.aggregate(pipeline))
+                # Try different collections for aggregation
+                collections_to_try = ['movies', 'comments', 'users', 'sessions', 'theaters', 'embedded_movies']
+                results = []
+                
+                for collection_name in collections_to_try:
+                    try:
+                        results = list(self.db[collection_name].aggregate(pipeline))
+                        if results:
+                            break
+                    except Exception:
+                        continue
+                        
             else:
                 # Find query
                 query_dict = json.loads(query)
-                collection_name = query_dict.get('collection', 'products')
+                collection_name = query_dict.get('collection', 'movies')
                 find_query = query_dict.get('query', {})
                 projection = query_dict.get('projection', {})
                 
@@ -282,17 +230,17 @@ COMMON QUERY PATTERNS:
         """
         # Create system prompt with database context
         system_prompt = """
-You are a MongoDB query generator for a Grocery Warehouse Management System. 
+You are a MongoDB query generator for the Sample Mflix Database (movie database). 
 
 """ + self.db_context + """
 
 INSTRUCTIONS:
 1. Generate ONLY valid MongoDB queries (find operations) or aggregation pipelines
-2. Use appropriate $lookup for joining collections
-3. Use $match for filtering conditions
+2. Use appropriate $lookup for joining collections (e.g., comments with movies)
+3. Use $match for filtering conditions (genre, year, cast, director, etc.)
 4. Use $project for field selection
 5. Use $sort for meaningful ordering
-6. Use $limit to limit results (default 50 if not specified)
+6. Use $limit to limit results (default 20 if not specified)
 7. Return ONLY the MongoDB query in JSON format, no explanations
 
 FOR FIND QUERIES, return format:
@@ -310,9 +258,11 @@ FOR AGGREGATION PIPELINES, return format:
 ]
 
 EXAMPLE PROMPTS AND QUERIES:
-- "Show all products": { "collection": "products", "query": {}, "projection": { "_id": 0 } }
-- "Products with low stock": [{ "$lookup": { "from": "inventory", "localField": "product_id", "foreignField": "product_id", "as": "inventory" } }, { "$unwind": "$inventory" }, { "$match": { "$expr": { "$lte": ["$inventory.stock_levels.current_stock", "$inventory.stock_levels.reorder_point"] } } }, { "$project": { "product_id": 1, "name": 1, "current_stock": "$inventory.stock_levels.current_stock" } }]
-- "High value orders": { "collection": "orders", "query": { "pricing.total_amount": { "$gte": 500 } }, "projection": { "_id": 0, "order_id": 1, "pricing.total_amount": 1, "customer_info.name": 1 } }
+- "Show all movies": { "collection": "movies", "query": {}, "projection": { "title": 1, "year": 1, "genres": 1, "_id": 0 } }
+- "Movies from 2020": { "collection": "movies", "query": { "year": 2020 }, "projection": { "title": 1, "year": 1, "_id": 0 } }
+- "Action movies with high ratings": [{ "$match": { "genres": "Action", "imdb.rating": { "$gte": 7 } } }, { "$project": { "title": 1, "imdb.rating": 1, "year": 1, "_id": 0 } }, { "$sort": { "imdb.rating": -1 } }, { "$limit": 20 }]
+- "Movies with comments": [{ "$lookup": { "from": "comments", "localField": "_id", "foreignField": "movie_id", "as": "comments" } }, { "$match": { "comments": { "$ne": [] } } }, { "$project": { "title": 1, "comment_count": { "$size": "$comments" }, "_id": 0 } }, { "$sort": { "comment_count": -1 } }]
+- "Top rated directors": [{ "$unwind": "$directors" }, { "$group": { "_id": "$directors", "avg_rating": { "$avg": "$imdb.rating" }, "movie_count": { "$sum": 1 } } }, { "$match": { "avg_rating": { "$gte": 7 } } }, { "$sort": { "avg_rating": -1 } }, { "$limit": 10 }]
 """
         
         # Generate MongoDB query
@@ -348,16 +298,21 @@ EXAMPLE PROMPTS AND QUERIES:
     def get_sample_queries(self) -> List[str]:
         """Get sample query prompts for testing"""
         return [
-            "Show all products with their current stock levels",
-            "Find products that need reordering (low stock)",
-            "Show high-value orders above $500",
-            "List products expiring within 7 days",
-            "Find customers who made multiple orders",
-            "Show inventory movement history for the last 24 hours",
-            "Calculate total sales by product category",
-            "Find products with quality issues",
-            "Show warehouse zone utilization",
-            "List suppliers and their product counts"
+            "Show all movies from 2020",
+            "Find action movies with high ratings",
+            "Show movies with the most comments",
+            "List top rated directors",
+            "Find movies starring Tom Hanks",
+            "Show movies with awards",
+            "List movies by genre",
+            "Find movies released in the 1990s",
+            "Show movies with high IMDB ratings",
+            "Find movies with specific cast members",
+            "Show movies with plot summaries",
+            "List movies by country",
+            "Find movies with specific directors",
+            "Show movies with runtime over 2 hours",
+            "Find movies with specific awards"
         ]
     
     def close_connection(self):
@@ -371,13 +326,13 @@ def create_nosql_agent() -> NoSQLQueryExecutor:
 
 def interactive_nosql_chat():
     """Run an interactive NoSQL query session"""
-    print("🗄️  NoSQL Query Executor (MongoDB)")
+    print("🎬 NoSQL Query Executor (Sample Mflix Database)")
     print("=" * 50)
     
     try:
         agent = create_nosql_agent()
         print("✅ Connected to MongoDB successfully")
-        print("📊 Database context loaded")
+        print("📊 Sample Mflix database context loaded")
         
         print("\n💡 Sample queries you can try:")
         sample_queries = agent.get_sample_queries()
@@ -418,21 +373,21 @@ def interactive_nosql_chat():
                 
     except Exception as e:
         print(f"❌ Failed to initialize NoSQL agent: {e}")
-        print("Make sure MONGO_DB and OPENAI_API_KEY are set in your .env file")
+        print("Make sure MONGO_DB and OPENAPI_KEY are set in your .env file")
     finally:
         if 'agent' in locals():
             agent.close_connection()
 
 if __name__ == "__main__":
     # Check if required environment variables are available
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ Error: OPENAI_API_KEY not found in environment variables")
-        print("Please make sure your .env file contains: OPENAI_API_KEY=your_api_key_here")
+    if not os.getenv("OPENAPI_KEY"):
+        print("❌ Error: OPENAPI_KEY not found in environment variables")
+        print("Please make sure your .env file contains: OPENAPI_KEY=your_api_key_here")
         exit(1)
     
     if not os.getenv("MONGO_DB"):
         print("❌ Error: MONGO_DB not found in environment variables")
-        print("Please make sure your .env file contains: MONGO_DB=mongodb://localhost:27017/")
+        print("Please make sure your .env file contains: MONGO_DB=mongodb+srv://anton:<db_password>@cluster0.ku0y7rt.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
         exit(1)
     
     interactive_nosql_chat()

@@ -70,11 +70,11 @@ def test_basic_functionality():
         print("  - Relationship definitions")
         
         print("\n🎉 All basic tests passed!")
-        print("💡 Note: API-dependent tests require valid OPENAI_API_KEY")
+        print("💡 Note: API-dependent tests require valid OPENAPI_KEY")
         
     except Exception as e:
         print(f"❌ Failed to initialize SQL agent: {e}")
-        print("Make sure SQL_DB and OPENAI_API_KEY are set in your .env file")
+        print("Make sure SQL_DB and OPENAPI_KEY are set in your .env file")
 
 if __name__ == "__main__":
     test_basic_functionality() 

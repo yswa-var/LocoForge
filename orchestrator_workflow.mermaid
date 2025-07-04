@@ -1,0 +1,39 @@
+flowchart TD
+    START([START]) --> CLASSIFY[classify_query<br/>Classify query domain & intent]
+    
+    CLASSIFY --> DECOMPOSE[decompose_query<br/>Decompose complex queries<br/>into sub-queries]
+    
+    DECOMPOSE --> ROUTE[route_to_agents<br/>Prepare routing decision]
+    
+    ROUTE --> ROUTE_DECISION{route_decision<br/>Query Domain?}
+    
+    ROUTE_DECISION -->|EMPLOYEE| SQL_AGENT[sql_agent<br/>Execute SQL queries]
+    ROUTE_DECISION -->|WAREHOUSE| NOSQL_AGENT[nosql_agent<br/>Execute NoSQL queries]
+    ROUTE_DECISION -->|HYBRID| SQL_AGENT
+    ROUTE_DECISION -->|ERROR| FORMAT[format_response<br/>Format error response]
+    
+    SQL_AGENT --> SQL_DECISION{sql_agent_decision<br/>Domain?}
+    SQL_DECISION -->|HYBRID| NOSQL_AGENT
+    SQL_DECISION -->|EMPLOYEE| AGGREGATE[aggregate_results<br/>Aggregate results<br/>from agents]
+    
+    NOSQL_AGENT --> AGGREGATE
+    
+    SQL_AGENT --> AGGREGATE
+    
+    AGGREGATE --> UPDATE[update_context<br/>Update conversation<br/>context]
+    
+    UPDATE --> FORMAT
+    
+    FORMAT --> END([END])
+    
+    %% Styling
+    classDef startEnd fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef process fill:#f3e5f5,stroke:#4a148c,stroke-width:2px;
+    classDef decision fill:#fff3e0,stroke:#e65100,stroke-width:2px;
+    classDef agent fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px;
+    classDef error fill:#ffebee,stroke:#c62828,stroke-width:2px;
+    
+    class START,END startEnd;
+    class CLASSIFY,DECOMPOSE,ROUTE,AGGREGATE,UPDATE,FORMAT process;
+    class ROUTE_DECISION,SQL_DECISION decision;
+    class SQL_AGENT,NOSQL_AGENT agent;

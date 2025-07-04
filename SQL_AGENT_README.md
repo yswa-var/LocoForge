@@ -1,10 +1,10 @@
 # SQL Query Executor Agent
 
-A powerful SQL query executor that uses OpenAI GPT-4o-mini to convert natural language prompts into SQL queries and execute them against the Employee Management database.
+A powerful SQL query executor that uses OpenAI gpt-4o-mini to convert natural language prompts into SQL queries and execute them against the Employees Database (Neon sample database).
 
 ## Features
 
-- 🤖 **AI-Powered Query Generation**: Convert natural language to SQL using OpenAI GPT-4o-mini
+- 🤖 **AI-Powered Query Generation**: Convert natural language to SQL using OpenAI gpt-4o-mini
 - 📊 **Database Context Awareness**: Full understanding of database schema and relationships
 - 🔄 **Structured JSON Output**: Consistent, machine-readable response format
 - 🛡️ **Error Handling**: Robust error handling for invalid queries
@@ -13,33 +13,39 @@ A powerful SQL query executor that uses OpenAI GPT-4o-mini to convert natural la
 
 ## Database Schema
 
-The agent works with an Employee Management System containing:
+The agent works with the Employees Database (Neon sample database) containing:
 
-### Tables
-1. **departments** - Company departments with budgets and locations
-2. **employees** - Employee information with department and manager relationships
-3. **projects** - Project details with department and manager assignments
-4. **employee_projects** - Many-to-many relationship between employees and projects
-5. **attendance** - Employee attendance and time tracking
+### Tables (in employees schema)
+1. **employees.employee** - Employee information with personal details
+2. **employees.department** - Department information with names and locations
+3. **employees.dept_emp** - Employee-department assignments with date ranges
+4. **employees.dept_manager** - Department manager assignments with date ranges
+5. **employees.salary** - Employee salary history with date ranges
+6. **employees.title** - Employee job titles with date ranges
 
 ### Key Relationships
-- Employees belong to Departments (many-to-one)
-- Employees can have Managers (self-referencing)
-- Projects belong to Departments (many-to-one)
-- Employees can work on multiple Projects (many-to-many)
-- Employees have Attendance records (one-to-many)
+- Employees are assigned to Departments through dept_emp (many-to-many with date ranges)
+- Employees can be Department Managers through dept_manager (many-to-many with date ranges)
+- Employees have Salary History through salary table (one-to-many with date ranges)
+- Employees have Title History through title table (one-to-many with date ranges)
+- All relationships include date ranges (from_date, to_date) for historical tracking
 
 ## Installation & Setup
 
 1. **Environment Variables**: Ensure your `.env` file contains:
    ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   SQL_DB=/Users/apple/lgstudioSetup/LocoForge/employee_management.db
+   OPENAPI_KEY=your_OPENAPI_KEY_here
+   POSTGRES_DB_URL=postgresql://neondb_owner:npg_Td9jOSCDHrh1@ep-fragrant-snow-a8via4xi-pooler.eastus2.azure.neon.tech/employees?sslmode=require&channel_binding=require
    ```
 
-2. **Dependencies**: Install required packages:
+2. **Database Setup**: Run the setup script to initialize the employees database:
    ```bash
-   pip install langchain-openai openai python-dotenv
+   python setup_employees_db.py
+   ```
+
+3. **Dependencies**: Install required packages:
+   ```bash
+   pip install langchain-openai openai python-dotenv psycopg2-binary
    ```
 
 ## Usage
@@ -115,19 +121,19 @@ The agent returns structured JSON responses:
 ### Simple Queries
 - "Show all employees"
 - "List all departments"
-- "Find employees with salary above 50000"
+- "Find current employees with salary above 50000"
 
 ### Complex Queries
-- "Show employees with their managers and departments"
+- "Show employees with their departments and current salaries"
 - "Calculate average salary by department"
-- "Find employees working on multiple projects"
-- "Show project managers and their projects"
+- "Find employees who are department managers"
+- "Show employee titles and their counts"
 
 ### Aggregation Queries
 - "Calculate total salary by department"
-- "Show departments with their total budget"
+- "Show departments with the most employees"
 - "Find the highest paid employee"
-- "Calculate total hours worked by employee"
+- "Calculate average salary by job title"
 
 ## Testing
 
@@ -162,18 +168,20 @@ Errors are returned in the response structure:
 
 ## Sample Data
 
-The database contains sample employee management data:
-- 6 departments (Engineering, Marketing, Sales, HR, Finance, Operations)
-- 16 employees with various roles and salaries
-- Multiple projects with employee assignments
-- Attendance records for time tracking
+The database contains the Neon employees sample data:
+- 9 departments (Customer Service, Development, Finance, Human Resources, Marketing, Production, Quality Management, Research, Sales)
+- 300,024 employees with comprehensive information
+- Historical salary data with date ranges
+- Job title history with date ranges
+- Department assignment history with date ranges
 
 ## Limitations
 
-- Currently supports SQLite databases only
+- Currently supports PostgreSQL databases only
 - Query results are limited to 50 rows by default
 - Complex analytical queries may require optimization
 - Generated queries may need manual review for complex business logic
+- All tables are in the 'employees' schema and require proper schema prefixing
 
 ## Future Enhancements
 

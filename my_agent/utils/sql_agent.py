@@ -6,8 +6,9 @@ Returns structured JSON output with query and results
 """
 
 import os
-import sqlite3
 import json
+import psycopg2
+from psycopg2.extras import RealDictCursor
 from typing import Dict, List, Any, Optional
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -20,97 +21,232 @@ load_dotenv()
 class SQLQueryExecutor:
     """SQL Query Executor for Employee Management Database"""
     
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_url: str = None):
         """
         Initialize the SQL Query Executor
         
         Args:
-            db_path: Path to the SQLite database (defaults to SQL_DB from .env)
+            db_url: PostgreSQL connection URL (defaults to POSTGRES_DB_URL from .env)
         """
-        self.db_path = db_path or os.getenv("SQL_DB")
-        if not self.db_path:
-            raise ValueError("Database path not found. Set SQL_DB in .env file")
+        self.db_url = db_url or os.getenv("POSTGRES_DB_URL")
+        if not self.db_url:
+            # Default to the provided Neon database URL
+            self.db_url = "postgresql://neondb_owner:npg_Td9jOSCDHrh1@ep-fragrant-snow-a8via4xi-pooler.eastus2.azure.neon.tech/employees?sslmode=require&channel_binding=require"
+        
+        # Check if OpenAI API key is available
+        openai_key = os.getenv("OPENAPI_KEY") or os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise ValueError("OpenAI API key not found. Please set OPENAPI_KEY or OPENAI_API_KEY environment variable.")
         
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
-            openai_api_key=os.getenv("OPENAI_API_KEY")
+            openai_api_key=openai_key
         )
         
-        # Database schema context
-        self.db_context = self._build_database_context()
+        # Test database connection and build context
+        try:
+            # Test connection first
+            self._test_connection()
+            # Database schema context
+            self.db_context = self._build_database_context()
+            print("✅ SQL Agent initialized successfully")
+        except Exception as e:
+            print(f"❌ SQL Agent initialization failed: {e}")
+            # Use fallback context
+            self.db_context = self._get_fallback_context()
+            raise e
+        
+    def _test_connection(self):
+        """Test database connection"""
+        try:
+            conn = psycopg2.connect(self.db_url)
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+            conn.close()
+            print("✅ Database connection successful")
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            raise e
+    
+    def _get_connection(self):
+        """Get a PostgreSQL connection"""
+        return psycopg2.connect(self.db_url)
+    
+    def _get_fallback_context(self) -> str:
+        """Get fallback database context when connection fails"""
+        return """
+DATABASE SCHEMA FOR EMPLOYEES DATABASE (Neon Sample):
+
+The employees database contains the following tables in the 'employees' schema:
+- employees.employee - Employee information (id, first_name, last_name, birth_date, gender, hire_date)
+- employees.department - Department information (id, dept_name, location)
+- employees.dept_emp - Employee-department assignments (employee_id, department_id, from_date, to_date)
+- employees.dept_manager - Department managers (employee_id, department_id, from_date, to_date)
+- employees.salary - Employee salary history (employee_id, amount, from_date, to_date)
+- employees.title - Employee job titles (employee_id, title, from_date, to_date)
+
+Sample queries:
+- SELECT * FROM employees.employee LIMIT 5;
+- SELECT d.dept_name, AVG(s.amount) FROM employees.department d JOIN employees.dept_emp de ON d.id = de.department_id JOIN employees.salary s ON de.employee_id = s.employee_id GROUP BY d.dept_name;
+- SELECT COUNT(*) FROM employees.employee;
+
+Please ensure your database is accessible and contains the expected tables.
+"""
         
     def _build_database_context(self) -> str:
-        """Build comprehensive database context including schema and relationships"""
-        context = """
-DATABASE SCHEMA FOR EMPLOYEE MANAGEMENT SYSTEM:
-
-1. DEPARTMENTS TABLE:
-   - department_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - department_name (TEXT, NOT NULL, UNIQUE)
-   - location (TEXT, NOT NULL)
-   - budget (REAL, DEFAULT 0.0)
-   - created_date (DATE, DEFAULT CURRENT_DATE)
-
-2. EMPLOYEES TABLE:
-   - employee_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - first_name (TEXT, NOT NULL)
-   - last_name (TEXT, NOT NULL)
-   - email (TEXT, UNIQUE, NOT NULL)
-   - phone (TEXT)
-   - hire_date (DATE, NOT NULL)
-   - salary (REAL, NOT NULL)
-   - department_id (INTEGER, FOREIGN KEY -> departments.department_id)
-   - manager_id (INTEGER, FOREIGN KEY -> employees.employee_id)
-   - position (TEXT, NOT NULL)
-   - status (TEXT, DEFAULT 'active')
-
-3. PROJECTS TABLE:
-   - project_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - project_name (TEXT, NOT NULL)
-   - description (TEXT)
-   - start_date (DATE, NOT NULL)
-   - end_date (DATE)
-   - budget (REAL, DEFAULT 0.0)
-   - status (TEXT, DEFAULT 'active')
-   - department_id (INTEGER, FOREIGN KEY -> departments.department_id)
-   - project_manager_id (INTEGER, FOREIGN KEY -> employees.employee_id)
-
-4. EMPLOYEE_PROJECTS TABLE (Junction table):
-   - assignment_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - employee_id (INTEGER, NOT NULL, FOREIGN KEY -> employees.employee_id)
-   - project_id (INTEGER, NOT NULL, FOREIGN KEY -> projects.project_id)
-   - role (TEXT, NOT NULL)
-   - hours_allocated (INTEGER, DEFAULT 0)
-   - start_date (DATE, NOT NULL)
-   - end_date (DATE)
-   - UNIQUE(employee_id, project_id)
-
-5. ATTENDANCE TABLE:
-   - attendance_id (INTEGER, PRIMARY KEY, AUTOINCREMENT)
-   - employee_id (INTEGER, NOT NULL, FOREIGN KEY -> employees.employee_id)
-   - date (DATE, NOT NULL)
-   - check_in_time (TIME)
-   - check_out_time (TIME)
-   - hours_worked (REAL, DEFAULT 0.0)
-   - status (TEXT, DEFAULT 'present')
-   - UNIQUE(employee_id, date)
-
-RELATIONSHIPS:
-- Employees belong to Departments (many-to-one)
-- Employees can have Managers (self-referencing, many-to-one)
-- Projects belong to Departments (many-to-one)
-- Projects have Project Managers (many-to-one with employees)
-- Employees can work on multiple Projects (many-to-many via employee_projects)
-- Employees have Attendance records (one-to-many)
-
-COMMON QUERY PATTERNS:
-- JOIN employees with departments to get department info
-- JOIN employees with projects via employee_projects
-- Self-join employees for manager-subordinate relationships
-- Aggregate functions for salary, budget, hours analysis
-- Date-based queries for attendance and project timelines
-"""
-        return context
+        """Build comprehensive database context by dynamically querying the database schema"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Get all table names from the employees schema (Neon employees database)
+            cursor.execute("""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = 'employees' 
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """)
+            tables = cursor.fetchall()
+            
+            context_parts = ["DATABASE SCHEMA FOR EMPLOYEES DATABASE (Neon Sample):\n"]
+            
+            # Build context for each table
+            for table in tables:
+                table_name = table[0]
+                
+                # Get table schema
+                cursor.execute("""
+                    SELECT c.column_name, c.data_type, c.is_nullable, c.column_default, 
+                           CASE WHEN pk.column_name IS NOT NULL THEN 'YES' ELSE 'NO' END as is_primary_key
+                    FROM information_schema.columns c
+                    LEFT JOIN (
+                        SELECT ku.column_name
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage ku 
+                            ON tc.constraint_name = ku.constraint_name
+                        WHERE tc.constraint_type = 'PRIMARY KEY' 
+                        AND ku.table_name = %s
+                        AND tc.table_schema = 'employees'
+                    ) pk ON c.column_name = pk.column_name
+                    WHERE c.table_name = %s AND c.table_schema = 'employees'
+                    ORDER BY c.ordinal_position
+                """, (table_name, table_name))
+                columns = cursor.fetchall()
+                
+                # Get foreign key information
+                cursor.execute("""
+                    SELECT 
+                        kcu.column_name,
+                        ccu.table_name AS foreign_table_name,
+                        ccu.column_name AS foreign_column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage AS ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                        AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY' 
+                    AND tc.table_name = %s
+                    AND tc.table_schema = 'employees'
+                """, (table_name,))
+                foreign_keys = cursor.fetchall()
+                
+                # Build table description
+                context_parts.append(f"{len(context_parts)}. {table_name.upper()} TABLE:")
+                
+                for col in columns:
+                    col_name, col_type, is_nullable, default_val, is_pk = col
+                    
+                    # Find foreign key info for this column
+                    fk_info = ""
+                    for fk in foreign_keys:
+                        if fk[0] == col_name:  # Column name in foreign key
+                            fk_info = f" (FOREIGN KEY -> {fk[1]}.{fk[2]})"
+                            break
+                    
+                    # Build column description
+                    col_desc = f"   - {col_name} ({col_type}"
+                    if is_pk == 'YES':
+                        col_desc += ", PRIMARY KEY"
+                    if is_nullable == 'NO':
+                        col_desc += ", NOT NULL"
+                    if default_val is not None:
+                        col_desc += f", DEFAULT {default_val}"
+                    col_desc += fk_info + ")"
+                    
+                    context_parts.append(col_desc)
+                
+                context_parts.append("")  # Empty line between tables
+            
+            # Build relationships section
+            context_parts.append("RELATIONSHIPS:")
+            relationships = []
+            
+            for table in tables:
+                table_name = table[0]
+                cursor.execute("""
+                    SELECT 
+                        kcu.column_name,
+                        ccu.table_name AS foreign_table_name,
+                        ccu.column_name AS foreign_column_name
+                    FROM information_schema.table_constraints AS tc
+                    JOIN information_schema.key_column_usage AS kcu
+                        ON tc.constraint_name = kcu.constraint_name
+                        AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage AS ccu
+                        ON ccu.constraint_name = tc.constraint_name
+                        AND ccu.table_schema = tc.table_schema
+                    WHERE tc.constraint_type = 'FOREIGN KEY' 
+                    AND tc.table_name = %s
+                    AND tc.table_schema = 'employees'
+                """, (table_name,))
+                foreign_keys = cursor.fetchall()
+                
+                for fk in foreign_keys:
+                    local_column = fk[0]
+                    fk_table = fk[1]
+                    fk_column = fk[2]
+                    
+                    # Determine relationship type (simplified)
+                    if fk_table == table_name:
+                        rel_type = "self-referencing"
+                    else:
+                        rel_type = "many-to-one"
+                    
+                    relationships.append(f"- {table_name}.{local_column} -> {fk_table}.{fk_column} ({rel_type})")
+            
+            if relationships:
+                context_parts.extend(relationships)
+            else:
+                context_parts.append("- No foreign key relationships found")
+            
+            # Add common query patterns
+            context_parts.extend([
+                "",
+                "COMMON QUERY PATTERNS:",
+                "- Use JOINs to get related data from multiple tables",
+                "- Use WHERE clauses for filtering",
+                "- Use ORDER BY for meaningful sorting",
+                "- Use LIMIT for result size control",
+                "- Use aggregate functions (COUNT, SUM, AVG, etc.) for analysis",
+                "- Use GROUP BY for grouped aggregations",
+                "- Use PostgreSQL-specific functions like NOW(), CURRENT_DATE, etc.",
+                "- All tables are in the 'employees' schema, so use 'employees.table_name' or set search_path",
+                "- Use 'employees.employee', 'employees.department', 'employees.salary', etc."
+            ])
+            
+            conn.close()
+            
+            return "\n".join(context_parts)
+            
+        except Exception as e:
+            # Fallback to basic context if schema querying fails
+            print(f"⚠️  Warning: Unable to dynamically load schema due to error: {str(e)}")
+            print("   Using fallback context - consider checking database connection and permissions.")
+            return self._get_fallback_context()
     
     def execute_query(self, query: str) -> Dict[str, Any]:
         """
@@ -123,33 +259,45 @@ COMMON QUERY PATTERNS:
             Dictionary with query results and metadata
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            conn = self._get_connection()
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
             
             # Execute query
             cursor.execute(query)
             
-            # Get column names
-            columns = [description[0] for description in cursor.description] if cursor.description else []
-            
-            # Get results
-            results = cursor.fetchall()
-            
-            # Convert to list of dictionaries
-            data = []
-            for row in results:
-                data.append(dict(zip(columns, row)))
-            
-            conn.close()
-            
-            return {
-                "success": True,
-                "query": query,
-                "columns": columns,
-                "row_count": len(data),
-                "data": data
-            }
-            
+            # If the query returns rows, fetch them
+            if cursor.description:
+                columns = [desc[0] for desc in cursor.description]
+                results = cursor.fetchall()
+                data = []
+                for row in results:
+                    row_dict = {}
+                    for key, value in row.items():
+                        if hasattr(value, 'isoformat'):
+                            row_dict[key] = value.isoformat()
+                        else:
+                            row_dict[key] = value
+                    data.append(row_dict)
+                conn.close()
+                return {
+                    "success": True,
+                    "query": query,
+                    "columns": columns,
+                    "row_count": len(data),
+                    "data": data
+                }
+            else:
+                # DDL/DML: commit and return success
+                conn.commit()
+                conn.close()
+                return {
+                    "success": True,
+                    "query": query,
+                    "columns": [],
+                    "row_count": 0,
+                    "data": [],
+                    "message": "Query executed successfully (no result set)"
+                }
         except Exception as e:
             return {
                 "success": False,
@@ -170,22 +318,26 @@ COMMON QUERY PATTERNS:
         """
         # Create system prompt with database context
         system_prompt = f"""
-You are a SQL query generator for an Employee Management System. 
+You are a SQL query generator for the Employees Database (Neon sample database) using PostgreSQL. 
 
 {self.db_context}
 
 INSTRUCTIONS:
-1. Generate ONLY valid SQLite SQL queries
+1. Generate ONLY valid PostgreSQL SQL queries
 2. Use appropriate JOINs to get related data
 3. Include proper WHERE clauses for filtering
 4. Use ORDER BY for meaningful sorting
 5. Limit results to reasonable amounts (use LIMIT 50 if not specified)
 6. Return ONLY the SQL query, no explanations
+7. Use PostgreSQL syntax (e.g., ILIKE instead of LIKE for case-insensitive matching)
+8. Use proper PostgreSQL data types and functions
+9. All tables are in the 'employees' schema, so prefix table names with 'employees.' or set search_path
 
 EXAMPLE PROMPTS AND QUERIES:
-- "Show all employees": SELECT * FROM employees LIMIT 50
-- "Employees in IT department": SELECT e.*, d.department_name FROM employees e JOIN departments d ON e.department_id = d.department_id WHERE d.department_name = 'IT'
-- "Average salary by department": SELECT d.department_name, AVG(e.salary) as avg_salary FROM employees e JOIN departments d ON e.department_id = d.department_id GROUP BY d.department_id, d.department_name
+- "Show all employees": SELECT * FROM employees.employee LIMIT 50
+- "Employees in Sales department": SELECT e.*, d.dept_name FROM employees.employee e JOIN employees.dept_emp de ON e.id = de.employee_id JOIN employees.department d ON de.department_id = d.id WHERE d.dept_name = 'Sales'
+- "Average salary by department": SELECT d.dept_name, AVG(s.amount) as avg_salary FROM employees.department d JOIN employees.dept_emp de ON d.id = de.department_id JOIN employees.salary s ON de.employee_id = s.employee_id WHERE s.to_date > CURRENT_DATE AND de.to_date > CURRENT_DATE GROUP BY d.dept_name
+- "Current employees": SELECT * FROM employees.employee e JOIN employees.dept_emp de ON e.id = de.employee_id WHERE de.to_date > CURRENT_DATE
 """
         
         # Generate SQL query
@@ -207,12 +359,21 @@ EXAMPLE PROMPTS AND QUERIES:
         query_result = self.execute_query(generated_query)
         
         # Return structured response
-        return {
+        result = {
             "prompt": prompt,
             "generated_sql": generated_query,
             "execution_result": query_result,
             "timestamp": self._get_timestamp()
         }
+        
+        # Add success field for compatibility
+        result["success"] = query_result.get("success", False)
+        
+        print(f"🔍 SQL Agent Debug - Generated SQL: {generated_query}")
+        print(f"🔍 SQL Agent Debug - Query Result: {query_result}")
+        print(f"🔍 SQL Agent Debug - Final Result: {result}")
+        
+        return result
     
     def _get_timestamp(self) -> str:
         """Get current timestamp"""
@@ -223,15 +384,15 @@ EXAMPLE PROMPTS AND QUERIES:
         """Get sample query prompts for testing"""
         return [
             "Show all employees with their department names",
-            "Find employees with salary above 50000",
-            "Show projects and their assigned employees",
+            "Find current employees with salary above 50000",
+            "Show departments with their average salary",
             "Calculate average salary by department",
-            "Find employees who are managers",
-            "Show attendance records for the last 7 days",
-            "List departments with their total budget",
-            "Find employees working on multiple projects",
-            "Show project managers and their projects",
-            "Calculate total hours worked by employee"
+            "Find employees who are department managers",
+            "Show employee titles and their counts",
+            "List departments with the most employees",
+            "Find employees with the highest salaries",
+            "Show salary history for a specific employee",
+            "Calculate total salary budget by department"
         ]
 
 def create_sql_agent() -> SQLQueryExecutor:
@@ -240,12 +401,12 @@ def create_sql_agent() -> SQLQueryExecutor:
 
 def interactive_sql_chat():
     """Run an interactive SQL query session"""
-    print("🗄️  SQL Query Executor (OpenAI)")
+    print("🗄️  PostgreSQL Query Executor (OpenAI)")
     print("=" * 50)
     
     try:
         agent = create_sql_agent()
-        print("✅ Connected to database successfully")
+        print("✅ Connected to PostgreSQL database successfully")
         print("📊 Database context loaded")
         
         print("\n💡 Sample queries you can try:")
@@ -287,18 +448,13 @@ def interactive_sql_chat():
                 
     except Exception as e:
         print(f"❌ Failed to initialize SQL agent: {e}")
-        print("Make sure SQL_DB and OPENAI_API_KEY are set in your .env file")
+        print("Make sure POSTGRES_DB_URL and OPENAPI_KEY are set in your .env file")
 
 if __name__ == "__main__":
     # Check if required environment variables are available
-    if not os.getenv("OPENAI_API_KEY"):
-        print("❌ Error: OPENAI_API_KEY not found in environment variables")
-        print("Please make sure your .env file contains: OPENAI_API_KEY=your_api_key_here")
-        exit(1)
-    
-    if not os.getenv("SQL_DB"):
-        print("❌ Error: SQL_DB not found in environment variables")
-        print("Please make sure your .env file contains: SQL_DB=/path/to/your/database.db")
+    if not os.getenv("OPENAPI_KEY"):
+        print("❌ Error: OPENAPI_KEY not found in environment variables")
+        print("Please make sure your .env file contains: OPENAPI_KEY=your_api_key_here")
         exit(1)
     
     interactive_sql_chat()

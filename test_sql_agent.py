@@ -63,7 +63,7 @@ def test_sql_agent():
         
     except Exception as e:
         print(f"❌ Failed to initialize SQL agent: {e}")
-        print("Make sure SQL_DB and OPENAI_API_KEY are set in your .env file")
+        print("Make sure SQL_DB and OPENAPI_KEY are set in your .env file")
 
 if __name__ == "__main__":
     test_sql_agent() 
