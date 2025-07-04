@@ -469,7 +469,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- **LangGraph Team** for the powerful workflow framework
-- **OpenAI** for GPT-4o-mini capabilities
-- **Render** for seamless deployment platform
-- **MongoDB** for NoSQL database support
+- **Our Team** [Yash Varshney](https://github.com/yswa-var/), [dhruv jain](https://github.com/DhruvJ2), [Aditya Mandal](https://github.com/Aditya-1304)
+- **Langgraph Team**
