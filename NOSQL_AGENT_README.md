@@ -37,7 +37,7 @@ The agent works with a **grocery warehouse database** containing three main coll
 
 1. **Install Dependencies**:
 ```bash
-pip install pymongo langchain-openai python-dotenv
+pip install mongoengine langchain-openai python-dotenv
 ```
 
 2. **Set Environment Variables**:
