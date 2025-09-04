@@ -387,6 +387,10 @@ The system includes complete Render deployment configuration:
 docker build -t locoforge .
 docker run -p 5000:5000 locoforge
 ```
+pip install -U "langgraph-cli[inmem]"
+pip install -U "langgraph-cli[inmem]"
+pip install -U "langgraph-cli[inmem]"
+pip install -U "langgraph-cli[inmem]"
 
 ### Environment Variables for Production
 

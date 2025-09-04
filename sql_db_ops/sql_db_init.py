@@ -6,7 +6,7 @@ def create_employee_management_db():
     """Create SQLite database with employee management tables and mock data"""
     
     # Create database file
-    db_path = "/Users/apple/lgstudioSetup/LocoForge/employee_management.db"
+    db_path = "employee_management.db"
     
     # Remove existing database if it exists
     if os.path.exists(db_path):

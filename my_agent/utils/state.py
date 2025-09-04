@@ -1,4 +1,5 @@
-from typing import List, TypedDict, Dict, Any, Optional, Annotated
+from typing import List, Dict, Any, Optional, Annotated
+from typing_extensions import TypedDict
 from langchain_core.messages import BaseMessage
 from enum import Enum
 
